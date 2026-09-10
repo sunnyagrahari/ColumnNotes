@@ -1,0 +1,8 @@
+ColumnNotes portable mode
+========================
+The presence of this file next to ColumnNotes.exe enables portable mode.
+
+Settings, recent files, and autosave are written beside the EXE
+(not in %APPDATA%\ColumnNotes).
+
+You can also start the app with --portable even without this file.

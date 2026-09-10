@@ -1,0 +1,12 @@
+<Application x:Class="ColumnNotes.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Startup="OnStartup">
+  <Application.Resources>
+    <SolidColorBrush x:Key="PaperBrush" Color="#F4EFE6"/>
+    <SolidColorBrush x:Key="ChromeBrush" Color="#E8E2D6"/>
+    <SolidColorBrush x:Key="InkBrush" Color="#1A1714"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#3D6B5A"/>
+    <SolidColorBrush x:Key="TitleBrush" Color="#2C4A3E"/>
+  </Application.Resources>
+</Application>

@@ -1,0 +1,58 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Publish self-contained win-x64
+        run: >
+          dotnet publish native/src/ColumnNotes/ColumnNotes.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -o artifacts/publish
+
+      - name: Stamp portable folder
+        run: powershell -File portable/make-portable.ps1
+
+      - name: Upload portable zip (Actions artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ColumnNotes-portable-win-x64
+          path: artifacts/ColumnNotes-portable-win-x64.zip
+
+      - name: Publish GitHub Release with EXE
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "v1.0.0"
+          $notes = @"
+          ColumnNotes 1.0.0 — portable Windows build (self-contained, no .NET install needed).
+
+          1. Download ColumnNotes-portable-win-x64.zip
+          2. Unzip
+          3. Double-click ColumnNotes.exe
+
+          portable.txt next to the EXE keeps settings beside the app (no AppData).
+          "@
+          gh release delete $tag --yes 2>$null
+          gh release create $tag `
+            "artifacts/ColumnNotes-portable-win-x64.zip" `
+            "artifacts/publish/ColumnNotes.exe" `
+            --title "ColumnNotes 1.0.0" `
+            --notes $notes

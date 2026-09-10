@@ -1,0 +1,43 @@
+{
+  "format": "cnotes",
+  "version": 1,
+  "title": "Welcome",
+  "encoding": "UTF-8",
+  "wordWrap": true,
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "modifiedAt": "2026-01-01T00:00:00.000Z",
+  "plainText": "Welcome to ColumnNotes\nA local notepad with columns and checklists.",
+  "columns": [
+    {
+      "id": "col-1",
+      "blocks": [
+        {
+          "id": "b1",
+          "type": "paragraph",
+          "html": "<strong>Welcome to ColumnNotes</strong>",
+          "plainText": "Welcome to ColumnNotes"
+        },
+        {
+          "id": "b2",
+          "type": "paragraph",
+          "html": "A local notepad with columns and checklists. Nothing leaves this device.",
+          "plainText": "A local notepad with columns and checklists. Nothing leaves this device."
+        },
+        {
+          "id": "b3",
+          "type": "check",
+          "isChecked": false,
+          "html": "Turn selected lines into checkboxes with Ctrl+Shift+K",
+          "plainText": "Turn selected lines into checkboxes with Ctrl+Shift+K"
+        },
+        {
+          "id": "b4",
+          "type": "check",
+          "isChecked": false,
+          "html": "Split the page from View → Columns",
+          "plainText": "Split the page from View → Columns"
+        }
+      ]
+    }
+  ]
+}

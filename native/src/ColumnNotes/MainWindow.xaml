@@ -1,0 +1,125 @@
+<Window x:Class="ColumnNotes.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ColumnNotes"
+        Height="720" Width="1100"
+        MinHeight="400" MinWidth="560"
+        Background="{StaticResource PaperBrush}"
+        PreviewKeyDown="OnPreviewKeyDown"
+        Closing="OnClosing"
+        AllowDrop="True"
+        Drop="OnDrop"
+        DragOver="OnDragOver">
+  <DockPanel>
+    <Menu DockPanel.Dock="Top" Background="{StaticResource ChromeBrush}">
+      <MenuItem Header="_File">
+        <MenuItem Header="_New" InputGestureText="Ctrl+N" Click="NewDoc"/>
+        <MenuItem Header="New _window" InputGestureText="Ctrl+Shift+N" Click="NewWindow"/>
+        <MenuItem Header="_Open…" InputGestureText="Ctrl+O" Click="OpenDoc"/>
+        <Separator/>
+        <MenuItem Header="_Save" InputGestureText="Ctrl+S" Click="SaveDoc"/>
+        <MenuItem Header="Save _As…" InputGestureText="Ctrl+Shift+S" Click="SaveDocAs"/>
+        <Separator/>
+        <MenuItem Header="Export _HTML…" Click="ExportHtml"/>
+        <MenuItem Header="Export _Markdown…" Click="ExportMd"/>
+        <MenuItem Header="Export _RTF…" Click="ExportRtf"/>
+        <MenuItem Header="Export _Text…" Click="ExportTxt"/>
+        <Separator/>
+        <MenuItem Header="_Print…" InputGestureText="Ctrl+P" Click="PrintDoc"/>
+        <Separator/>
+        <MenuItem x:Name="RecentMenu" Header="Recent files"/>
+        <Separator/>
+        <MenuItem Header="E_xit" Click="ExitApp"/>
+      </MenuItem>
+      <MenuItem Header="_Edit">
+        <MenuItem Header="_Undo" InputGestureText="Ctrl+Z" Click="Undo"/>
+        <MenuItem Header="_Redo" InputGestureText="Ctrl+Y" Click="Redo"/>
+        <Separator/>
+        <MenuItem Header="Cu_t" InputGestureText="Ctrl+X" Command="ApplicationCommands.Cut"/>
+        <MenuItem Header="_Copy" InputGestureText="Ctrl+C" Command="ApplicationCommands.Copy"/>
+        <MenuItem Header="_Paste" InputGestureText="Ctrl+V" Command="ApplicationCommands.Paste"/>
+        <MenuItem Header="Paste as plain text" InputGestureText="Ctrl+Shift+V" Click="PastePlain"/>
+        <Separator/>
+        <MenuItem Header="_Find…" InputGestureText="Ctrl+F" Click="ShowFind"/>
+        <MenuItem Header="_Replace…" InputGestureText="Ctrl+H" Click="ShowReplace"/>
+        <MenuItem Header="Find next" InputGestureText="F3" Click="FindNext"/>
+        <Separator/>
+        <MenuItem Header="Convert lines to checkboxes" InputGestureText="Ctrl+Shift+K" Click="ConvertToChecks"/>
+        <MenuItem Header="Convert checkboxes to lines" Click="ConvertToParagraphs"/>
+        <MenuItem Header="Insert date/time" InputGestureText="F5" Click="InsertDateTime"/>
+      </MenuItem>
+      <MenuItem Header="F_ormat">
+        <MenuItem Header="_Bold" InputGestureText="Ctrl+B" Click="StyleBold"/>
+        <MenuItem Header="_Italic" InputGestureText="Ctrl+I" Click="StyleItalic"/>
+        <MenuItem Header="_Underline" InputGestureText="Ctrl+U" Click="StyleUnderline"/>
+        <Separator/>
+        <MenuItem x:Name="WordWrapItem" Header="_Word wrap" IsCheckable="True" IsChecked="True" Click="ToggleWordWrap"/>
+        <MenuItem Header="_Font…" Click="ChooseFont"/>
+      </MenuItem>
+      <MenuItem Header="_View">
+        <MenuItem Header="1 column" Click="SetColumns" Tag="1"/>
+        <MenuItem Header="2 columns" Click="SetColumns" Tag="2"/>
+        <MenuItem Header="3 columns" Click="SetColumns" Tag="3"/>
+        <MenuItem Header="4 columns" Click="SetColumns" Tag="4"/>
+        <MenuItem Header="5 columns" Click="SetColumns" Tag="5"/>
+        <MenuItem Header="6 columns" Click="SetColumns" Tag="6"/>
+        <MenuItem Header="Custom…" Click="CustomColumns"/>
+        <Separator/>
+        <MenuItem Header="Zoom in" Click="ZoomIn"/>
+        <MenuItem Header="Zoom out" Click="ZoomOut"/>
+        <MenuItem Header="Reset zoom" Click="ZoomReset"/>
+        <Separator/>
+        <MenuItem x:Name="StatusBarItem" Header="Status bar" IsCheckable="True" IsChecked="True" Click="ToggleStatusBar"/>
+        <MenuItem Header="Light theme" Click="SetLight"/>
+        <MenuItem Header="Dark theme" Click="SetDark"/>
+        <MenuItem Header="Full screen" InputGestureText="F11" Click="ToggleFullScreen"/>
+      </MenuItem>
+      <MenuItem Header="_Help">
+        <MenuItem Header="_Keyboard shortcuts" Click="ShowKeys"/>
+        <MenuItem Header="_About ColumnNotes" Click="ShowAbout"/>
+      </MenuItem>
+    </Menu>
+
+    <ToolBarTray DockPanel.Dock="Top" Background="{StaticResource ChromeBrush}">
+      <ToolBar Band="0">
+        <Button Content="Save" Click="SaveDoc" ToolTip="Save (Ctrl+S)"/>
+        <Button Content="Undo" Click="Undo"/>
+        <Button Content="Redo" Click="Redo"/>
+        <Separator/>
+        <Button Content="B" FontWeight="Bold" Click="StyleBold"/>
+        <Button Content="I" FontStyle="Italic" Click="StyleItalic"/>
+        <Button Content="U" Click="StyleUnderline"/>
+        <Button Content="Color" Click="PickColor"/>
+        <Separator/>
+        <Button Content="Checkbox" Click="ConvertToChecks" ToolTip="Ctrl+Shift+K"/>
+        <Button Content="Columns" Click="ColumnsMenu"/>
+      </ToolBar>
+    </ToolBarTray>
+
+    <StatusBar x:Name="StatusBar" DockPanel.Dock="Bottom" Background="{StaticResource ChromeBrush}">
+      <StatusBarItem><TextBlock x:Name="StatusColumns" Text="Col 1/1"/></StatusBarItem>
+      <Separator/>
+      <StatusBarItem><TextBlock x:Name="StatusZoom" Text="Zoom 100%"/></StatusBarItem>
+      <Separator/>
+      <StatusBarItem><TextBlock Text="UTF-8"/></StatusBarItem>
+      <Separator/>
+      <StatusBarItem><TextBlock x:Name="StatusChecks" Text="No checks"/></StatusBarItem>
+      <Separator/>
+      <StatusBarItem HorizontalAlignment="Right"><TextBlock x:Name="StatusMessage" Text="Ready"/></StatusBarItem>
+    </StatusBar>
+
+    <Border x:Name="FindBar" DockPanel.Dock="Top" Padding="8,4" Background="{StaticResource ChromeBrush}" Visibility="Collapsed">
+      <StackPanel Orientation="Horizontal">
+        <TextBox x:Name="FindBox" Width="180" Margin="0,0,8,0" KeyDown="FindBoxKey"/>
+        <TextBox x:Name="ReplaceBox" Width="180" Margin="0,0,8,0" Visibility="Collapsed"/>
+        <CheckBox x:Name="MatchCaseBox" Content="Match case" VerticalAlignment="Center" Margin="0,0,8,0"/>
+        <Button Content="Find next" Click="FindNext" Margin="0,0,4,0"/>
+        <Button x:Name="ReplaceBtn" Content="Replace" Click="ReplaceOne" Visibility="Collapsed" Margin="0,0,4,0"/>
+        <Button x:Name="ReplaceAllBtn" Content="Replace all" Click="ReplaceAll" Visibility="Collapsed" Margin="0,0,4,0"/>
+        <Button Content="Close" Click="HideFind"/>
+      </StackPanel>
+    </Border>
+
+    <Grid x:Name="Board" Background="{StaticResource PaperBrush}"/>
+  </DockPanel>
+</Window>
