@@ -40,20 +40,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "v1.1.0"
+          $tag = "v1.1.1"
           $notes = @"
-          ColumnNotes 1.1.0 — portable Windows build.
+          ColumnNotes 1.1.1 — portable Windows build (startup crash fix).
 
-          New: rename columns, Notepad++-style tabs, Select All selects the column,
-          checkbox button toggles on/off, colored sections inside each column.
+          1.1.0 died on launch because the tab strip attached the same UI element twice.
+          1.1.1 starts normally: tabs, renameable columns, colored sections, Select All, checkbox toggle.
 
           1. Download ColumnNotes-portable-win-x64.zip
           2. Unzip
           3. Double-click ColumnNotes.exe
+
+          If Windows SmartScreen appears: More info → Run anyway.
           "@
           gh release delete $tag --yes 2>$null
           gh release create $tag `
             "artifacts/ColumnNotes-portable-win-x64.zip" `
             "artifacts/publish/ColumnNotes.exe" `
-            --title "ColumnNotes 1.1.0" `
+            --title "ColumnNotes 1.1.1" `
             --notes $notes

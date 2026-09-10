@@ -89,27 +89,50 @@ public partial class MainWindow : Window
         foreach (var tab in _tabs)
         {
             var name = tab.Path != null ? Path.GetFileName(tab.Path) : tab.Doc.Title + ".cnotes";
-            var btn = new Button
+            var close = new Button
             {
-                Content = (tab.Dirty ? "*" : "") + name,
-                Padding = new Thickness(10, 4, 10, 4),
-                Margin = new Thickness(0, 0, 1, 0),
-                Tag = tab,
-                Background = tab == _tab ? (Brush)Resources["PaperBrush"] : (Brush)Resources["ChromeBrush"],
+                Content = "×",
+                Width = 22,
+                Padding = new Thickness(0),
                 BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                Foreground = (Brush)Resources["InkBrush"],
+                ToolTip = "Close tab"
+            };
+            close.Click += (_, e) =>
+            {
+                e.Handled = true;
+                CloseTab(tab);
+            };
+            var label = new TextBlock
+            {
+                Text = (tab.Dirty ? "*" : "") + name,
+                Margin = new Thickness(10, 6, 8, 6),
+                VerticalAlignment = VerticalAlignment.Center,
                 Foreground = (Brush)Resources["InkBrush"]
             };
-            btn.Click += (_, _) => SwitchTab(tab);
-            var close = new Button { Content = "×", Width = 22, Padding = new Thickness(0), Tag = tab, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
-            close.Click += (_, e) => { e.Handled = true; CloseTab(tab); };
-            var row = new DockPanel { Tag = tab };
+            var row = new DockPanel
+            {
+                LastChildFill = true,
+                Tag = tab,
+                Background = tab == _tab ? (Brush)Resources["PaperBrush"] : (Brush)Resources["ChromeBrush"],
+                Cursor = Cursors.Hand
+            };
             DockPanel.SetDock(close, Dock.Right);
             row.Children.Add(close);
-            row.Children.Add(btn);
-            var wrap = new Border { Child = row, BorderBrush = (Brush)Resources["ChromeBrush"] };
+            row.Children.Add(label);
+            row.MouseLeftButtonUp += (_, _) => SwitchTab(tab);
             TabStrip.Children.Add(row);
         }
-        var plus = new Button { Content = "+", Width = 32, BorderThickness = new Thickness(0), Background = (Brush)Resources["ChromeBrush"] };
+        var plus = new Button
+        {
+            Content = "+",
+            Width = 32,
+            BorderThickness = new Thickness(0),
+            Background = (Brush)Resources["ChromeBrush"],
+            Foreground = (Brush)Resources["InkBrush"],
+            ToolTip = "New tab"
+        };
         plus.Click += NewDoc;
         TabStrip.Children.Add(plus);
     }
