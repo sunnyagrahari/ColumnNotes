@@ -4,7 +4,7 @@ Local Windows notepad with **columns** and **checklists**. No account, no cloud,
 
 ## Download (Windows)
 
-Latest portable build: **[Releases](https://github.com/sunnyagrahari/ColumnNotes/releases/latest)**
+Latest portable build (v1.1.0): **[Releases](https://github.com/sunnyagrahari/ColumnNotes/releases/latest)**
 
 1. Download `ColumnNotes-portable-win-x64.zip`
 2. Unzip

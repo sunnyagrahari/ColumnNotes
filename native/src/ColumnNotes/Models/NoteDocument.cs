@@ -22,7 +22,7 @@ public sealed class NoteDocument
     {
         var doc = new NoteDocument { Title = title };
         for (var i = 0; i < Math.Clamp(columnCount, 1, 12); i++)
-            doc.Columns.Add(NoteColumn.Empty());
+            doc.Columns.Add(NoteColumn.Empty($"Column {i + 1}"));
         doc.RefreshPlainText();
         return doc;
     }
@@ -30,14 +30,18 @@ public sealed class NoteDocument
     public static NoteDocument Welcome()
     {
         var doc = Empty(1, "Welcome");
-        doc.Columns[0].Blocks =
+        var col = doc.Columns[0];
+        col.Name = "Notes";
+        col.Sections[0].Title = "Getting started";
+        col.Sections[0].Color = "sage";
+        col.Blocks =
         [
-            NoteBlock.Paragraph("Welcome to ColumnNotes", bold: true),
-            NoteBlock.Paragraph("A local notepad with columns and checklists. Nothing leaves this device."),
-            NoteBlock.Paragraph(""),
-            NoteBlock.Check("Turn selected lines into checkboxes with Ctrl+Shift+K", false),
-            NoteBlock.Check("Split the page from View → Columns", false),
-            NoteBlock.Check("Press F5 to stamp the date and time", false),
+            NoteBlock.Paragraph("Welcome to ColumnNotes", bold: true, col.Sections[0].Id),
+            NoteBlock.Paragraph("A local notepad with columns and checklists. Nothing leaves this device.", false, col.Sections[0].Id),
+            NoteBlock.Paragraph("", false, col.Sections[0].Id),
+            NoteBlock.Check("Turn selected lines into checkboxes with Ctrl+Shift+K", false, col.Sections[0].Id),
+            NoteBlock.Check("Split the page from View → Columns, then rename a column", false, col.Sections[0].Id),
+            NoteBlock.Check("Add a colored section inside a column", false, col.Sections[0].Id),
         ];
         doc.RefreshPlainText();
         return doc;
@@ -54,8 +58,10 @@ public sealed class NoteDocument
         var parts = new List<string>();
         for (var i = 0; i < Columns.Count; i++)
         {
-            if (Columns.Count > 1) parts.Add($"--- Column {i + 1} ---");
-            foreach (var b in Columns[i].Blocks)
+            var col = Columns[i];
+            col.EnsureMeta(i);
+            if (Columns.Count > 1) parts.Add($"--- {col.Name} ---");
+            foreach (var b in col.Blocks)
             {
                 var t = b.PlainText ?? "";
                 parts.Add(b.Type == "check" ? $"{(b.IsChecked == true ? "[x]" : "[ ]")} {t}" : t);
@@ -93,15 +99,8 @@ public sealed class NoteDocument
             var doc = System.Text.Json.JsonSerializer.Deserialize<NoteDocument>(raw, JsonOpts());
             if (doc?.Columns is { Count: > 0 })
             {
-                foreach (var col in doc.Columns)
-                {
-                    if (string.IsNullOrEmpty(col.Id)) col.Id = Guid.NewGuid().ToString();
-                    if (col.Blocks.Count == 0) col.Blocks.Add(NoteBlock.Paragraph(""));
-                    foreach (var b in col.Blocks)
-                    {
-                        if (string.IsNullOrEmpty(b.Id)) b.Id = Guid.NewGuid().ToString();
-                    }
-                }
+                for (var i = 0; i < doc.Columns.Count; i++)
+                    doc.Columns[i].EnsureMeta(i);
                 if (string.IsNullOrWhiteSpace(doc.Title)) doc.Title = fallbackTitle;
                 return doc;
             }
@@ -112,11 +111,12 @@ public sealed class NoteDocument
         }
 
         var fromText = Empty(1, fallbackTitle);
+        var sid = fromText.Columns[0].Sections[0].Id;
         fromText.Columns[0].Blocks = raw.Replace("\r\n", "\n").Split('\n')
-            .Select(line => NoteBlock.FromLine(line))
+            .Select(line => NoteBlock.FromLine(line, sid))
             .ToList();
         if (fromText.Columns[0].Blocks.Count == 0)
-            fromText.Columns[0].Blocks.Add(NoteBlock.Paragraph(""));
+            fromText.Columns[0].Blocks.Add(NoteBlock.Paragraph("", false, sid));
         fromText.RefreshPlainText();
         return fromText;
     }
@@ -126,21 +126,35 @@ public sealed class NoteDocument
         count = Math.Clamp(count, 1, 12);
         if (count > Columns.Count)
         {
-            while (Columns.Count < count) Columns.Add(NoteColumn.Empty());
+            while (Columns.Count < count) Columns.Add(NoteColumn.Empty($"Column {Columns.Count + 1}"));
         }
         else if (count < Columns.Count)
         {
             var keep = Columns.Take(count).ToList();
             var rest = Columns.Skip(count);
             foreach (var col in rest)
-            foreach (var b in col.Blocks)
             {
-                if (b.Type == "paragraph" && string.IsNullOrWhiteSpace(b.PlainText)) continue;
-                keep[^1].Blocks.Add(b);
+                keep[^1].Sections.AddRange(col.Sections);
+                foreach (var b in col.Blocks)
+                {
+                    if (b.Type == "paragraph" && string.IsNullOrWhiteSpace(b.PlainText)) continue;
+                    keep[^1].Blocks.Add(b);
+                }
             }
-            if (keep[^1].Blocks.Count == 0) keep[^1].Blocks.Add(NoteBlock.Paragraph(""));
+            if (keep[^1].Blocks.Count == 0) keep[^1].Blocks.Add(NoteBlock.Paragraph("", false, keep[^1].Sections[0].Id));
             Columns = keep;
         }
+        RefreshPlainText();
+    }
+
+    public void AddSection(int columnIndex)
+    {
+        var col = Columns[Math.Clamp(columnIndex, 0, Columns.Count - 1)];
+        col.EnsureMeta(columnIndex);
+        var colors = NoteSection.Colors;
+        var section = NoteSection.Create($"Section {col.Sections.Count + 1}", colors[col.Sections.Count % colors.Length]);
+        col.Sections.Add(section);
+        col.Blocks.Add(NoteBlock.Paragraph("", false, section.Id));
         RefreshPlainText();
     }
 
@@ -152,12 +166,48 @@ public sealed class NoteDocument
     };
 }
 
+public sealed class NoteSection
+{
+    public static readonly string[] Colors = ["paper", "sage", "ochre", "slate", "rose", "mist"];
+
+    [JsonPropertyName("id")] public string Id { get; set; } = Guid.NewGuid().ToString();
+    [JsonPropertyName("title")] public string Title { get; set; } = "Section 1";
+    [JsonPropertyName("color")] public string Color { get; set; } = "paper";
+
+    public static NoteSection Create(string title, string color) => new() { Title = title, Color = color };
+}
+
 public sealed class NoteColumn
 {
     [JsonPropertyName("id")] public string Id { get; set; } = Guid.NewGuid().ToString();
+    [JsonPropertyName("name")] public string Name { get; set; } = "Column 1";
+    [JsonPropertyName("sections")] public List<NoteSection> Sections { get; set; } = new();
     [JsonPropertyName("blocks")] public List<NoteBlock> Blocks { get; set; } = new();
 
-    public static NoteColumn Empty() => new() { Blocks = [NoteBlock.Paragraph("")] };
+    public static NoteColumn Empty(string name = "Column 1")
+    {
+        var section = NoteSection.Create("Section 1", "paper");
+        return new NoteColumn
+        {
+            Name = name,
+            Sections = [section],
+            Blocks = [NoteBlock.Paragraph("", false, section.Id)]
+        };
+    }
+
+    public void EnsureMeta(int index)
+    {
+        if (string.IsNullOrWhiteSpace(Name)) Name = $"Column {index + 1}";
+        if (Sections.Count == 0) Sections.Add(NoteSection.Create("Section 1", "paper"));
+        var fallback = Sections[0].Id;
+        foreach (var b in Blocks)
+        {
+            if (string.IsNullOrEmpty(b.Id)) b.Id = Guid.NewGuid().ToString();
+            if (string.IsNullOrEmpty(b.SectionId) || Sections.All(s => s.Id != b.SectionId))
+                b.SectionId = fallback;
+        }
+        if (Blocks.Count == 0) Blocks.Add(NoteBlock.Paragraph("", false, fallback));
+    }
 }
 
 public sealed class NoteBlock
@@ -169,29 +219,31 @@ public sealed class NoteBlock
     [JsonPropertyName("plainText")] public string PlainText { get; set; } = "";
     [JsonPropertyName("rtf")] public string? Rtf { get; set; }
     [JsonPropertyName("xaml")] public string? Xaml { get; set; }
+    [JsonPropertyName("sectionId")] public string? SectionId { get; set; }
 
-    public static NoteBlock Paragraph(string text, bool bold = false)
+    public static NoteBlock Paragraph(string text, bool bold = false, string? sectionId = null)
     {
         var html = bold ? $"<strong>{System.Net.WebUtility.HtmlEncode(text)}</strong>" : System.Net.WebUtility.HtmlEncode(text);
-        return new NoteBlock { Type = "paragraph", Html = html, PlainText = text };
+        return new NoteBlock { Type = "paragraph", Html = html, PlainText = text, SectionId = sectionId };
     }
 
-    public static NoteBlock Check(string text, bool isChecked)
+    public static NoteBlock Check(string text, bool isChecked, string? sectionId = null)
     {
         return new NoteBlock
         {
             Type = "check",
             IsChecked = isChecked,
             Html = System.Net.WebUtility.HtmlEncode(text),
-            PlainText = text
+            PlainText = text,
+            SectionId = sectionId
         };
     }
 
-    public static NoteBlock FromLine(string line)
+    public static NoteBlock FromLine(string line, string? sectionId = null)
     {
         var m = System.Text.RegularExpressions.Regex.Match(line, @"^\s*\[(x|X| )\]\s?(.*)$");
-        if (m.Success) return Check(m.Groups[2].Value, m.Groups[1].Value is "x" or "X");
-        return Paragraph(line);
+        if (m.Success) return Check(m.Groups[2].Value, m.Groups[1].Value is "x" or "X", sectionId);
+        return Paragraph(line, false, sectionId);
     }
 
     public NoteBlock AsCheck()
@@ -235,7 +287,6 @@ public sealed class NoteBlock
     }
 }
 
-/// <summary>Thin adapter so model code can talk to a RichTextBox without leaking View types everywhere.</summary>
 public sealed class RichTextBoxAdapter
 {
     public FlowDocument Document { get; }

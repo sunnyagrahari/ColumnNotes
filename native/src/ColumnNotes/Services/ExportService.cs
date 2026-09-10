@@ -12,7 +12,7 @@ public static class ExportService
         sb.AppendLine($"# {doc.Title}").AppendLine();
         for (var i = 0; i < doc.Columns.Count; i++)
         {
-            if (doc.Columns.Count > 1) sb.AppendLine($"## Column {i + 1}").AppendLine();
+            if (doc.Columns.Count > 1) sb.AppendLine($"## {doc.Columns[i].Name}").AppendLine();
             foreach (var b in doc.Columns[i].Blocks)
             {
                 if (b.Type == "check")

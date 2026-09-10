@@ -16,6 +16,7 @@
         <MenuItem Header="_New" InputGestureText="Ctrl+N" Click="NewDoc"/>
         <MenuItem Header="New _window" InputGestureText="Ctrl+Shift+N" Click="NewWindow"/>
         <MenuItem Header="_Open…" InputGestureText="Ctrl+O" Click="OpenDoc"/>
+        <MenuItem Header="Close _tab" Click="CloseActiveTab"/>
         <Separator/>
         <MenuItem Header="_Save" InputGestureText="Ctrl+S" Click="SaveDoc"/>
         <MenuItem Header="Save _As…" InputGestureText="Ctrl+Shift+S" Click="SaveDocAs"/>
@@ -40,12 +41,15 @@
         <MenuItem Header="_Paste" InputGestureText="Ctrl+V" Command="ApplicationCommands.Paste"/>
         <MenuItem Header="Paste as plain text" InputGestureText="Ctrl+Shift+V" Click="PastePlain"/>
         <Separator/>
+        <MenuItem Header="Select _all" InputGestureText="Ctrl+A" Click="SelectAllColumn"/>
+        <Separator/>
         <MenuItem Header="_Find…" InputGestureText="Ctrl+F" Click="ShowFind"/>
         <MenuItem Header="_Replace…" InputGestureText="Ctrl+H" Click="ShowReplace"/>
         <MenuItem Header="Find next" InputGestureText="F3" Click="FindNext"/>
         <Separator/>
-        <MenuItem Header="Convert lines to checkboxes" InputGestureText="Ctrl+Shift+K" Click="ConvertToChecks"/>
+        <MenuItem Header="Checkboxes on/off" InputGestureText="Ctrl+Shift+K" Click="ConvertToChecks"/>
         <MenuItem Header="Convert checkboxes to lines" Click="ConvertToParagraphs"/>
+        <MenuItem Header="Insert section" Click="InsertSection"/>
         <MenuItem Header="Insert date/time" InputGestureText="F5" Click="InsertDateTime"/>
       </MenuItem>
       <MenuItem Header="F_ormat">
@@ -80,6 +84,10 @@
       </MenuItem>
     </Menu>
 
+    <ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+      <StackPanel x:Name="TabStrip" Orientation="Horizontal" Background="{StaticResource ChromeBrush}"/>
+    </ScrollViewer>
+
     <ToolBarTray DockPanel.Dock="Top" Background="{StaticResource ChromeBrush}">
       <ToolBar Band="0">
         <Button Content="Save" Click="SaveDoc" ToolTip="Save (Ctrl+S)"/>
@@ -91,7 +99,8 @@
         <Button Content="U" Click="StyleUnderline"/>
         <Button Content="Color" Click="PickColor"/>
         <Separator/>
-        <Button Content="Checkbox" Click="ConvertToChecks" ToolTip="Ctrl+Shift+K"/>
+        <Button Content="Checkbox" Click="ConvertToChecks" ToolTip="Checkboxes on/off (Ctrl+Shift+K)"/>
+        <Button Content="Section" Click="InsertSection" ToolTip="Add a colored section"/>
         <Button Content="Columns" Click="ColumnsMenu"/>
       </ToolBar>
     </ToolBarTray>

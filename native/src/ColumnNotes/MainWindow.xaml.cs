@@ -13,42 +13,129 @@ namespace ColumnNotes;
 
 public partial class MainWindow : Window
 {
-    NoteDocument _doc = NoteDocument.Welcome();
-    string? _path;
-    bool _dirty;
-    readonly Stack<string> _undo = new();
-    readonly Stack<string> _redo = new();
+    sealed class EditorTab
+    {
+        public string Id { get; } = Guid.NewGuid().ToString();
+        public NoteDocument Doc { get; set; } = NoteDocument.Empty();
+        public string? Path { get; set; }
+        public bool Dirty { get; set; }
+        public Stack<string> Undo { get; } = new();
+        public Stack<string> Redo { get; } = new();
+        public int ActiveColumn { get; set; }
+        public HashSet<string> SelectedIds { get; } = new();
+    }
+
+    readonly List<EditorTab> _tabs = new();
+    EditorTab _tab = null!;
+    NoteDocument _doc { get => _tab.Doc; set => _tab.Doc = value; }
+    string? _path { get => _tab.Path; set => _tab.Path = value; }
+    bool _dirty { get => _tab.Dirty; set => _tab.Dirty = value; }
+    Stack<string> _undo => _tab.Undo;
+    Stack<string> _redo => _tab.Redo;
+    int _activeColumn { get => _tab.ActiveColumn; set => _tab.ActiveColumn = value; }
     WindowState _beforeFull;
     bool _fullscreen;
-    int _activeColumn;
     readonly List<List<FrameworkElement>> _blockViews = new();
+    readonly List<RichTextBox> _columnBoxes = new();
 
     public MainWindow()
     {
         InitializeComponent();
         ApplySettingsChrome();
+        var start = NoteDocument.Welcome();
         if (File.Exists(AppPaths.AutosavePath) && SettingsService.Current.RecentFiles.Count > 0)
         {
-            try { _doc = NoteDocument.Parse(File.ReadAllText(AppPaths.AutosavePath), "Untitled"); }
-            catch { _doc = NoteDocument.Welcome(); }
+            try { start = NoteDocument.Parse(File.ReadAllText(AppPaths.AutosavePath), "Untitled"); }
+            catch { start = NoteDocument.Welcome(); }
         }
-        RebuildBoard();
+        AddTab(start, start.Title == "Welcome" ? "Welcome.cnotes" : null, dirty: false);
         RebuildRecent();
-        UpdateTitle();
-        UpdateStatus();
     }
 
     public void OpenPath(string path)
     {
-        CaptureBoard();
-        _doc = NoteDocument.Parse(File.ReadAllText(path, Encoding.UTF8), Path.GetFileNameWithoutExtension(path));
-        _path = path;
-        _dirty = false;
+        var existing = _tabs.FirstOrDefault(t => string.Equals(t.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (existing != null)
+        {
+            SwitchTab(existing);
+            return;
+        }
+        var doc = NoteDocument.Parse(File.ReadAllText(path, Encoding.UTF8), Path.GetFileNameWithoutExtension(path));
         SettingsService.PushRecent(path);
         RebuildRecent();
+        AddTab(doc, path, dirty: false);
+        Status("Opened " + path);
+    }
+
+    void AddTab(NoteDocument doc, string? path, bool dirty)
+    {
+        var tab = new EditorTab { Doc = doc, Path = path, Dirty = dirty };
+        _tabs.Add(tab);
+        SwitchTab(tab);
+    }
+
+    void SwitchTab(EditorTab tab)
+    {
+        _tab = tab;
+        RebuildTabs();
         RebuildBoard();
         UpdateTitle();
-        Status("Opened " + path);
+        UpdateStatus();
+    }
+
+    void RebuildTabs()
+    {
+        TabStrip.Children.Clear();
+        foreach (var tab in _tabs)
+        {
+            var name = tab.Path != null ? Path.GetFileName(tab.Path) : tab.Doc.Title + ".cnotes";
+            var btn = new Button
+            {
+                Content = (tab.Dirty ? "*" : "") + name,
+                Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(0, 0, 1, 0),
+                Tag = tab,
+                Background = tab == _tab ? (Brush)Resources["PaperBrush"] : (Brush)Resources["ChromeBrush"],
+                BorderThickness = new Thickness(0),
+                Foreground = (Brush)Resources["InkBrush"]
+            };
+            btn.Click += (_, _) => SwitchTab(tab);
+            var close = new Button { Content = "×", Width = 22, Padding = new Thickness(0), Tag = tab, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
+            close.Click += (_, e) => { e.Handled = true; CloseTab(tab); };
+            var row = new DockPanel { Tag = tab };
+            DockPanel.SetDock(close, Dock.Right);
+            row.Children.Add(close);
+            row.Children.Add(btn);
+            var wrap = new Border { Child = row, BorderBrush = (Brush)Resources["ChromeBrush"] };
+            TabStrip.Children.Add(row);
+        }
+        var plus = new Button { Content = "+", Width = 32, BorderThickness = new Thickness(0), Background = (Brush)Resources["ChromeBrush"] };
+        plus.Click += NewDoc;
+        TabStrip.Children.Add(plus);
+    }
+
+    void CloseActiveTab(object s, RoutedEventArgs e) => CloseTab(_tab);
+
+    void CloseTab(EditorTab tab)
+    {
+        if (tab.Dirty)
+        {
+            var prev = _tab;
+            _tab = tab;
+            if (!ConfirmDiscard())
+            {
+                _tab = prev;
+                return;
+            }
+            _tab = prev;
+        }
+        _tabs.Remove(tab);
+        if (_tabs.Count == 0)
+            AddTab(NoteDocument.Empty(), null, dirty: false);
+        else if (_tab == tab)
+            SwitchTab(_tabs[^1]);
+        else
+            RebuildTabs();
     }
 
     void ApplySettingsChrome()
@@ -79,34 +166,46 @@ public partial class MainWindow : Window
         Board.Children.Clear();
         Board.ColumnDefinitions.Clear();
         _blockViews.Clear();
+        _columnBoxes.Clear();
         var n = Math.Max(1, _doc.Columns.Count);
         for (var i = 0; i < n; i++)
         {
+            _doc.Columns[i].EnsureMeta(i);
             Board.ColumnDefinitions.Add(new ColumnDefinition());
+            var colPanel = new DockPanel { LastChildFill = true };
+            var header = BuildColumnHeader(i);
+            DockPanel.SetDock(header, Dock.Top);
+            colPanel.Children.Add(header);
+
             var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-            var stack = new StackPanel { Margin = new Thickness(8) };
-            if (n > 1)
-            {
-                stack.Children.Add(new TextBlock
-                {
-                    Text = $"Column {i + 1}",
-                    FontFamily = new FontFamily("Consolas"),
-                    FontSize = 11,
-                    Opacity = 0.65,
-                    Margin = new Thickness(0, 0, 0, 6)
-                });
-            }
+            var stack = new StackPanel { Margin = new Thickness(0) };
             var views = new List<FrameworkElement>();
             var colIndex = i;
-            foreach (var block in _doc.Columns[i].Blocks)
+            var col = _doc.Columns[i];
+            foreach (var section in col.Sections)
             {
-                var row = BuildBlock(block, colIndex);
-                stack.Children.Add(row);
-                views.Add(row);
+                var secBlocks = col.Blocks.Where(b => b.SectionId == section.Id).ToList();
+                var band = new Border
+                {
+                    Background = SectionBrush(section.Color),
+                    Padding = new Thickness(8, 6, 8, 8),
+                    Margin = new Thickness(0, 0, 0, 4)
+                };
+                var inner = new StackPanel();
+                inner.Children.Add(BuildSectionHeader(colIndex, section));
+                foreach (var block in secBlocks)
+                {
+                    var row = BuildBlock(block, colIndex);
+                    inner.Children.Add(row);
+                    views.Add(row);
+                }
+                band.Child = inner;
+                stack.Children.Add(band);
             }
             scroll.Content = stack;
-            Grid.SetColumn(scroll, i);
-            Board.Children.Add(scroll);
+            colPanel.Children.Add(scroll);
+            Grid.SetColumn(colPanel, i);
+            Board.Children.Add(colPanel);
             _blockViews.Add(views);
             if (i < n - 1)
             {
@@ -116,6 +215,104 @@ public partial class MainWindow : Window
                 Board.Children.Add(split);
             }
         }
+    }
+
+    FrameworkElement BuildColumnHeader(int columnIndex)
+    {
+        var col = _doc.Columns[columnIndex];
+        var box = new TextBox
+        {
+            Text = col.Name,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 12,
+            Padding = new Thickness(8, 4, 4, 4)
+        };
+        box.GotFocus += (_, _) => _activeColumn = columnIndex;
+        box.LostFocus += (_, _) =>
+        {
+            col.Name = string.IsNullOrWhiteSpace(box.Text) ? $"Column {columnIndex + 1}" : box.Text.Trim();
+            box.Text = col.Name;
+            MarkDirty();
+        };
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+        };
+        var add = new Button { Content = "+ section", Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 2, 8, 2) };
+        add.Click += (_, _) =>
+        {
+            _activeColumn = columnIndex;
+            InsertSection(this, new RoutedEventArgs());
+        };
+        var row = new DockPanel { LastChildFill = true, Background = (Brush)Resources["ChromeBrush"] };
+        DockPanel.SetDock(add, Dock.Right);
+        row.Children.Add(add);
+        row.Children.Add(box);
+        return row;
+    }
+
+    FrameworkElement BuildSectionHeader(int columnIndex, NoteSection section)
+    {
+        var title = new TextBox
+        {
+            Text = section.Title,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            FontSize = 11,
+            Padding = new Thickness(0, 0, 8, 4),
+            Foreground = Brushes.Gray
+        };
+        title.LostFocus += (_, _) =>
+        {
+            if (!string.IsNullOrWhiteSpace(title.Text)) section.Title = title.Text.Trim();
+            MarkDirty();
+        };
+        var colors = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var id in NoteSection.Colors)
+        {
+            var c = id;
+            var swatch = new Button
+            {
+                Width = 12,
+                Height = 12,
+                Margin = new Thickness(2, 0, 0, 0),
+                Background = SectionBrush(c),
+                BorderThickness = new Thickness(section.Color == c ? 2 : 1),
+                Padding = new Thickness(0),
+                Tag = c
+            };
+            swatch.Click += (_, _) =>
+            {
+                section.Color = c;
+                RebuildBoard();
+                MarkDirty();
+            };
+            colors.Children.Add(swatch);
+        }
+        var row = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(colors, Dock.Right);
+        row.Children.Add(colors);
+        row.Children.Add(title);
+        return row;
+    }
+
+    static Brush SectionBrush(string color)
+    {
+        return color switch
+        {
+            "sage" => new SolidColorBrush(Color.FromArgb(48, 39, 103, 73)),
+            "ochre" => new SolidColorBrush(Color.FromArgb(48, 146, 64, 14)),
+            "slate" => new SolidColorBrush(Color.FromArgb(48, 43, 76, 126)),
+            "rose" => new SolidColorBrush(Color.FromArgb(48, 155, 44, 44)),
+            "mist" => new SolidColorBrush(Color.FromArgb(48, 74, 85, 104)),
+            _ => Brushes.Transparent
+        };
     }
 
     FrameworkElement BuildBlock(NoteBlock block, int columnIndex)
@@ -138,9 +335,20 @@ public partial class MainWindow : Window
             block.CaptureFrom(new RichTextBoxAdapter(rtb.Document));
             MarkDirty();
         };
+        rtb.SelectionChanged += (_, _) =>
+        {
+            if (rtb.IsFocused && rtb.Selection.Text.Length > 0)
+            {
+                _tab.SelectedIds.Clear();
+                _tab.SelectedIds.Add(block.Id);
+            }
+        };
         TextOptions.SetTextFormattingMode(rtb, TextFormattingMode.Display);
         if (!SettingsService.Current.WordWrap)
             rtb.Document.PageWidth = 4000;
+        _columnBoxes.Add(rtb);
+        if (_tab.SelectedIds.Contains(block.Id))
+            row.Background = new SolidColorBrush(Color.FromArgb(40, 61, 107, 90));
 
         if (block.Type == "check")
         {
@@ -186,8 +394,10 @@ public partial class MainWindow : Window
 
     void MarkDirty()
     {
+        var first = !_dirty;
         _dirty = true;
         UpdateTitle();
+        if (first) RebuildTabs();
         UpdateStatus();
         try { File.WriteAllText(AppPaths.AutosavePath, NoteDocument.Serialize(_doc)); } catch { /* ignore */ }
     }
@@ -223,13 +433,7 @@ public partial class MainWindow : Window
 
     void NewDoc(object s, RoutedEventArgs e)
     {
-        if (!ConfirmDiscard()) return;
-        Snapshot();
-        _doc = NoteDocument.Empty();
-        _path = null;
-        _dirty = false;
-        RebuildBoard();
-        UpdateTitle();
+        AddTab(NoteDocument.Empty(), null, dirty: false);
     }
 
     void NewWindow(object s, RoutedEventArgs e)
@@ -291,6 +495,7 @@ public partial class MainWindow : Window
             _dirty = false;
             SettingsService.PushRecent(path);
             RebuildRecent();
+            RebuildTabs();
         }
         UpdateTitle();
         Status("Saved " + path);
@@ -428,18 +633,91 @@ public partial class MainWindow : Window
     {
         Snapshot();
         var col = _doc.Columns[Math.Clamp(_activeColumn, 0, _doc.Columns.Count - 1)];
-        col.Blocks = col.Blocks.SelectMany(SplitToChecks).ToList();
+        var selected = _tab.SelectedIds;
+        var targets = selected.Count > 0
+            ? col.Blocks.Where(b => selected.Contains(b.Id)).ToList()
+            : col.Blocks.ToList();
+        if (targets.Count == 0) return;
+        var allChecks = targets.All(b => b.Type == "check");
+        var keep = new HashSet<NoteBlock>();
+        if (allChecks)
+        {
+            foreach (var b in targets) b.AsParagraph();
+            keep = targets.ToHashSet();
+            Status("Checkboxes off");
+        }
+        else
+        {
+            var next = new List<NoteBlock>();
+            foreach (var b in col.Blocks)
+            {
+                if (targets.Contains(b))
+                {
+                    foreach (var n in SplitToChecks(b))
+                    {
+                        next.Add(n);
+                        keep.Add(n);
+                    }
+                }
+                else next.Add(b);
+            }
+            col.Blocks = next;
+            Status("Checkboxes on");
+        }
+        _tab.SelectedIds.Clear();
+        foreach (var b in keep) _tab.SelectedIds.Add(b.Id);
         RebuildBoard();
         MarkDirty();
-        Status("Converted to checkboxes");
     }
 
     static IEnumerable<NoteBlock> SplitToChecks(NoteBlock b)
     {
         if (b.Type == "check") { yield return b; yield break; }
         var lines = (b.PlainText ?? "").Replace("\r\n", "\n").Split('\n');
-        if (lines.Length == 0) yield return NoteBlock.Check("", false);
-        foreach (var line in lines) yield return NoteBlock.Check(line, false);
+        if (lines.Length == 0) yield return NoteBlock.Check("", false, b.SectionId);
+        foreach (var line in lines) yield return NoteBlock.Check(line, false, b.SectionId);
+    }
+
+    void InsertSection(object s, RoutedEventArgs e)
+    {
+        Snapshot();
+        _doc.AddSection(_activeColumn);
+        RebuildBoard();
+        MarkDirty();
+        Status("Section added");
+    }
+
+    void SelectAllColumn(object s, RoutedEventArgs e)
+    {
+        var col = _doc.Columns[Math.Clamp(_activeColumn, 0, _doc.Columns.Count - 1)];
+        _tab.SelectedIds.Clear();
+        foreach (var b in col.Blocks) _tab.SelectedIds.Add(b.Id);
+        RebuildBoard();
+        var colBoxes = _columnBoxes.Where(rtb => rtb.Tag is NoteBlock block && col.Blocks.Contains(block)).ToList();
+        if (colBoxes.Count > 0)
+        {
+            colBoxes[0].Focus();
+            colBoxes[0].SelectAll();
+            try
+            {
+                var text = string.Join("\n", col.Blocks.Select(b =>
+                    b.Type == "check" ? $"{(b.IsChecked == true ? "[x]" : "[ ]")} {b.PlainText}" : b.PlainText));
+                Clipboard.SetText(text);
+            }
+            catch { /* ignore */ }
+        }
+        Status($"Selected column “{col.Name}”");
+    }
+
+    void CopyColumnIfNeeded()
+    {
+        if (_tab.SelectedIds.Count <= 1) return;
+        var col = _doc.Columns[Math.Clamp(_activeColumn, 0, _doc.Columns.Count - 1)];
+        var blocks = col.Blocks.Where(b => _tab.SelectedIds.Contains(b.Id)).ToList();
+        if (blocks.Count == 0) blocks = col.Blocks;
+        var text = string.Join("\n", blocks.Select(b =>
+            b.Type == "check" ? $"{(b.IsChecked == true ? "[x]" : "[ ]")} {b.PlainText}" : b.PlainText));
+        Clipboard.SetText(text);
     }
 
     void ConvertToParagraphs(object s, RoutedEventArgs e)
@@ -612,11 +890,11 @@ public partial class MainWindow : Window
 
     void ShowKeys(object s, RoutedEventArgs e) =>
         MessageBox.Show(
-            "Ctrl+N New   Ctrl+O Open   Ctrl+S Save   Ctrl+Shift+S Save As\n" +
+            "Ctrl+N New tab   Ctrl+O Open (new tab)   Ctrl+W Close tab\n" +
             "Ctrl+P Print   Ctrl+F Find   Ctrl+H Replace   F3 Find next\n" +
-            "Ctrl+Z Undo   Ctrl+Y Redo   Ctrl+Shift+K Checkboxes\n" +
-            "Ctrl+Shift+V Paste plain   F5 Date/time   F11 Full screen\n" +
-            "Ctrl+Shift+N New window",
+            "Ctrl+A Select column   Ctrl+Z Undo   Ctrl+Y Redo\n" +
+            "Ctrl+Shift+K Checkboxes on/off   Ctrl+Shift+V Paste plain\n" +
+            "F5 Date/time   F11 Full screen   Ctrl+Shift+N New window",
             "Keyboard shortcuts");
 
     void ShowAbout(object s, RoutedEventArgs e) =>
@@ -636,6 +914,9 @@ public partial class MainWindow : Window
         else if (ctrl && shift && e.Key == Key.S) { SaveDocAs(s, e); e.Handled = true; }
         else if (ctrl && shift && e.Key == Key.K) { ConvertToChecks(s, e); e.Handled = true; }
         else if (ctrl && shift && e.Key == Key.V) { PastePlain(s, e); e.Handled = true; }
+        else if (ctrl && e.Key == Key.A) { SelectAllColumn(s, e); e.Handled = true; }
+        else if (ctrl && e.Key == Key.C && _tab.SelectedIds.Count > 1) { CopyColumnIfNeeded(); e.Handled = true; }
+        else if (ctrl && e.Key == Key.W) { CloseActiveTab(s, e); e.Handled = true; }
         else if (ctrl && e.Key == Key.N) { NewDoc(s, e); e.Handled = true; }
         else if (ctrl && e.Key == Key.O) { OpenDoc(s, e); e.Handled = true; }
         else if (ctrl && e.Key == Key.S) { SaveDoc(s, e); e.Handled = true; }
@@ -663,8 +944,18 @@ public partial class MainWindow : Window
 
     void OnClosing(object s, System.ComponentModel.CancelEventArgs e)
     {
-        if (!ConfirmDiscard()) e.Cancel = true;
-        else SettingsService.Save();
+        foreach (var tab in _tabs.ToList())
+        {
+            if (!tab.Dirty) continue;
+            SwitchTab(tab);
+            if (!ConfirmDiscard())
+            {
+                e.Cancel = true;
+                return;
+            }
+            tab.Dirty = false;
+        }
+        SettingsService.Save();
     }
 
     bool ConfirmDiscard()

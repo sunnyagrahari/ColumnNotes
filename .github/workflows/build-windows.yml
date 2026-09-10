@@ -40,19 +40,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "v1.0.0"
+          $tag = "v1.1.0"
           $notes = @"
-          ColumnNotes 1.0.0 — portable Windows build (self-contained, no .NET install needed).
+          ColumnNotes 1.1.0 — portable Windows build.
+
+          New: rename columns, Notepad++-style tabs, Select All selects the column,
+          checkbox button toggles on/off, colored sections inside each column.
 
           1. Download ColumnNotes-portable-win-x64.zip
           2. Unzip
           3. Double-click ColumnNotes.exe
-
-          portable.txt next to the EXE keeps settings beside the app (no AppData).
           "@
           gh release delete $tag --yes 2>$null
           gh release create $tag `
             "artifacts/ColumnNotes-portable-win-x64.zip" `
             "artifacts/publish/ColumnNotes.exe" `
-            --title "ColumnNotes 1.0.0" `
+            --title "ColumnNotes 1.1.0" `
             --notes $notes
