@@ -58,7 +58,7 @@ public sealed class NoteDocument
             foreach (var b in Columns[i].Blocks)
             {
                 var t = b.PlainText ?? "";
-                parts.Add(b.Type == "check" ? $"{(b.IsChecked ? "[x]" : "[ ]")} {t}" : t);
+                parts.Add(b.Type == "check" ? $"{(b.IsChecked == true ? "[x]" : "[ ]")} {t}" : t);
             }
             parts.Add("");
         }
@@ -74,7 +74,7 @@ public sealed class NoteDocument
         {
             if (b.Type != "check") continue;
             total++;
-            if (b.IsChecked) n++;
+            if (b.IsChecked == true) n++;
         }
         return (n, total);
     }

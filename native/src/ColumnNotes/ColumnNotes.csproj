@@ -15,4 +15,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <NeutralLanguage>en-US</NeutralLanguage>
   </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System.IO" />
+  </ItemGroup>
 </Project>

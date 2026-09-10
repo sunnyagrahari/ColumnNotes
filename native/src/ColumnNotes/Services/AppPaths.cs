@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace ColumnNotes.Services;
 
 public static class AppPaths
@@ -8,17 +10,17 @@ public static class AppPaths
 
     public static void Initialize(string[] args)
     {
-        ExeDirectory = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
-        var portableFlag = Path.Combine(ExeDirectory, "portable.txt");
+        ExeDirectory = AppContext.BaseDirectory.TrimEnd(System.IO.Path.DirectorySeparatorChar);
+        var portableFlag = System.IO.Path.Combine(ExeDirectory, "portable.txt");
         IsPortable = args.Any(a => string.Equals(a, "--portable", StringComparison.OrdinalIgnoreCase))
                      || File.Exists(portableFlag);
         DataDirectory = IsPortable
             ? ExeDirectory
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ColumnNotes");
+            : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ColumnNotes");
         Directory.CreateDirectory(DataDirectory);
     }
 
-    public static string SettingsPath => Path.Combine(DataDirectory, "settings.json");
-    public static string RecentPath => Path.Combine(DataDirectory, "recent.json");
-    public static string AutosavePath => Path.Combine(DataDirectory, "autosave.cnotes");
+    public static string SettingsPath => System.IO.Path.Combine(DataDirectory, "settings.json");
+    public static string RecentPath => System.IO.Path.Combine(DataDirectory, "recent.json");
+    public static string AutosavePath => System.IO.Path.Combine(DataDirectory, "autosave.cnotes");
 }

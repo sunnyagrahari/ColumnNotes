@@ -176,7 +176,12 @@ public partial class MainWindow : Window
         CaptureBoard();
         _undo.Push(NoteDocument.Serialize(_doc));
         _redo.Clear();
-        while (_undo.Count > 80) _undo.TrimExcess();
+        if (_undo.Count > 80)
+        {
+            var keep = _undo.Take(80).Reverse().ToArray();
+            _undo.Clear();
+            foreach (var snap in keep) _undo.Push(snap);
+        }
     }
 
     void MarkDirty()
