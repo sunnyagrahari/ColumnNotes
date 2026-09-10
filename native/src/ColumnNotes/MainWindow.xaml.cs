@@ -2,12 +2,14 @@ using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using ColumnNotes.Models;
 using ColumnNotes.Services;
 using Microsoft.Win32;
+using IOPath = System.IO.Path;
 
 namespace ColumnNotes;
 
@@ -60,7 +62,7 @@ public partial class MainWindow : Window
             SwitchTab(existing);
             return;
         }
-        var doc = NoteDocument.Parse(File.ReadAllText(path, Encoding.UTF8), Path.GetFileNameWithoutExtension(path));
+        var doc = NoteDocument.Parse(File.ReadAllText(path, Encoding.UTF8), IOPath.GetFileNameWithoutExtension(path));
         SettingsService.PushRecent(path);
         RebuildRecent();
         AddTab(doc, path, dirty: false);
@@ -88,15 +90,15 @@ public partial class MainWindow : Window
         TabStrip.Children.Clear();
         foreach (var tab in _tabs)
         {
-            var name = tab.Path != null ? Path.GetFileName(tab.Path) : tab.Doc.Title + ".cnotes";
+            var name = tab.Path != null ? IOPath.GetFileName(tab.Path) : tab.Doc.Title + ".cnotes";
+            var active = tab == _tab;
             var close = new Button
             {
                 Content = "×",
                 Width = 22,
+                Height = 22,
                 Padding = new Thickness(0),
-                BorderThickness = new Thickness(0),
-                Background = Brushes.Transparent,
-                Foreground = (Brush)Resources["InkBrush"],
+                FontSize = 14,
                 ToolTip = "Close tab"
             };
             close.Click += (_, e) =>
@@ -107,34 +109,32 @@ public partial class MainWindow : Window
             var label = new TextBlock
             {
                 Text = (tab.Dirty ? "*" : "") + name,
-                Margin = new Thickness(10, 6, 8, 6),
+                Margin = new Thickness(12, 0, 4, 0),
                 VerticalAlignment = VerticalAlignment.Center,
-                Foreground = (Brush)Resources["InkBrush"]
+                FontSize = 12
             };
             var row = new DockPanel
             {
                 LastChildFill = true,
                 Tag = tab,
-                Background = tab == _tab ? (Brush)Resources["PaperBrush"] : (Brush)Resources["ChromeBrush"],
-                Cursor = Cursors.Hand
+                MinWidth = 112,
+                Height = 32,
+                Cursor = Cursors.Hand,
+                Background = active ? (Brush)Resources["PaperBrush"] : Brushes.Transparent
             };
             DockPanel.SetDock(close, Dock.Right);
             row.Children.Add(close);
             row.Children.Add(label);
             row.MouseLeftButtonUp += (_, _) => SwitchTab(tab);
-            TabStrip.Children.Add(row);
+            var wrap = new Border
+            {
+                Child = row,
+                BorderBrush = (Brush)Resources["LineBrush"],
+                BorderThickness = new Thickness(0, 0, 1, 0),
+                Background = active ? (Brush)Resources["PaperBrush"] : Brushes.Transparent
+            };
+            TabStrip.Children.Add(wrap);
         }
-        var plus = new Button
-        {
-            Content = "+",
-            Width = 32,
-            BorderThickness = new Thickness(0),
-            Background = (Brush)Resources["ChromeBrush"],
-            Foreground = (Brush)Resources["InkBrush"],
-            ToolTip = "New tab"
-        };
-        plus.Click += NewDoc;
-        TabStrip.Children.Add(plus);
     }
 
     void CloseActiveTab(object s, RoutedEventArgs e) => CloseTab(_tab);
@@ -250,7 +250,8 @@ public partial class MainWindow : Window
             Background = Brushes.Transparent,
             FontFamily = new FontFamily("Consolas"),
             FontSize = 12,
-            Padding = new Thickness(8, 4, 4, 4)
+            Padding = new Thickness(10, 6, 4, 6),
+            VerticalContentAlignment = VerticalAlignment.Center
         };
         box.GotFocus += (_, _) => _activeColumn = columnIndex;
         box.LostFocus += (_, _) =>
@@ -267,13 +268,22 @@ public partial class MainWindow : Window
                 e.Handled = true;
             }
         };
-        var add = new Button { Content = "+ section", Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 2, 8, 2) };
+        var add = new Button
+        {
+            Content = "+",
+            Width = 28,
+            Height = 28,
+            FontSize = 16,
+            ToolTip = "Add section",
+            Margin = new Thickness(4, 2, 6, 2)
+        };
         add.Click += (_, _) =>
         {
             _activeColumn = columnIndex;
             InsertSection(this, new RoutedEventArgs());
         };
         var row = new DockPanel { LastChildFill = true, Background = (Brush)Resources["ChromeBrush"] };
+        row.Height = 32;
         DockPanel.SetDock(add, Dock.Right);
         row.Children.Add(add);
         row.Children.Add(box);
@@ -300,17 +310,20 @@ public partial class MainWindow : Window
         foreach (var id in NoteSection.Colors)
         {
             var c = id;
-            var swatch = new Button
+            var swatch = new Border
             {
-                Width = 12,
-                Height = 12,
-                Margin = new Thickness(2, 0, 0, 0),
-                Background = SectionBrush(c),
+                Width = 14,
+                Height = 14,
+                CornerRadius = new CornerRadius(7),
+                Margin = new Thickness(3, 0, 0, 0),
+                Background = SectionDot(c),
+                BorderBrush = section.Color == c ? (Brush)Resources["InkBrush"] : (Brush)Resources["LineBrush"],
                 BorderThickness = new Thickness(section.Color == c ? 2 : 1),
-                Padding = new Thickness(0),
-                Tag = c
+                Cursor = Cursors.Hand,
+                Tag = c,
+                ToolTip = c
             };
-            swatch.Click += (_, _) =>
+            swatch.MouseLeftButtonUp += (_, _) =>
             {
                 section.Color = c;
                 RebuildBoard();
@@ -325,17 +338,23 @@ public partial class MainWindow : Window
         return row;
     }
 
+    static Color SectionRgb(string color) => color switch
+    {
+        "sage" => Color.FromRgb(0x27, 0x67, 0x49),
+        "ochre" => Color.FromRgb(0x92, 0x40, 0x0E),
+        "slate" => Color.FromRgb(0x2B, 0x4C, 0x7E),
+        "rose" => Color.FromRgb(0x9B, 0x2C, 0x2C),
+        "mist" => Color.FromRgb(0x4A, 0x55, 0x68),
+        _ => Color.FromRgb(0xF4, 0xEF, 0xE6)
+    };
+
+    static Brush SectionDot(string color) => new SolidColorBrush(SectionRgb(color));
+
     static Brush SectionBrush(string color)
     {
-        return color switch
-        {
-            "sage" => new SolidColorBrush(Color.FromArgb(48, 39, 103, 73)),
-            "ochre" => new SolidColorBrush(Color.FromArgb(48, 146, 64, 14)),
-            "slate" => new SolidColorBrush(Color.FromArgb(48, 43, 76, 126)),
-            "rose" => new SolidColorBrush(Color.FromArgb(48, 155, 44, 44)),
-            "mist" => new SolidColorBrush(Color.FromArgb(48, 74, 85, 104)),
-            _ => Brushes.Transparent
-        };
+        if (color == "paper") return Brushes.Transparent;
+        var c = SectionRgb(color);
+        return new SolidColorBrush(Color.FromArgb(42, c.R, c.G, c.B));
     }
 
     FrameworkElement BuildBlock(NoteBlock block, int columnIndex)
@@ -427,8 +446,9 @@ public partial class MainWindow : Window
 
     void UpdateTitle()
     {
-        var name = _path != null ? Path.GetFileName(_path) : _doc.Title + ".cnotes";
+        var name = _path != null ? IOPath.GetFileName(_path) : _doc.Title + ".cnotes";
         Title = $"{(_dirty ? "*" : "")}{name} — ColumnNotes";
+        if (TitleLabel != null) TitleLabel.Text = Title;
     }
 
     void UpdateStatus()
@@ -514,7 +534,7 @@ public partial class MainWindow : Window
         if (kind == "cnotes")
         {
             _path = path;
-            _doc.Title = Path.GetFileNameWithoutExtension(path);
+            _doc.Title = IOPath.GetFileNameWithoutExtension(path);
             _dirty = false;
             SettingsService.PushRecent(path);
             RebuildRecent();
@@ -772,17 +792,29 @@ public partial class MainWindow : Window
             ("Ink", "#1A1714"), ("Brick", "#9B2C2C"), ("Moss", "#276749"),
             ("Slate", "#2B4C7E"), ("Ochre", "#92400E"), ("Sage", "#234E52")
         };
+        var row = new WrapPanel { Margin = new Thickness(8), Width = 160 };
         foreach (var (name, hex) in palette)
         {
-            var item = new MenuItem { Header = name };
             var color = (Color)ColorConverter.ConvertFromString(hex)!;
-            item.Click += (_, _) =>
+            var swatch = new Button
+            {
+                Width = 28,
+                Height = 28,
+                Margin = new Thickness(3),
+                Background = new SolidColorBrush(color),
+                ToolTip = name
+            };
+            swatch.Click += (_, _) =>
             {
                 if (Keyboard.FocusedElement is RichTextBox rtb)
                     rtb.Selection.ApplyPropertyValue(TextElement.ForegroundProperty, new SolidColorBrush(color));
+                menu.IsOpen = false;
             };
-            menu.Items.Add(item);
+            row.Children.Add(swatch);
         }
+        menu.Items.Add(new MenuItem { Header = row, StaysOpenOnClick = true });
+        menu.PlacementTarget = ColorBtn;
+        menu.Placement = PlacementMode.Bottom;
         menu.IsOpen = true;
     }
 
@@ -834,7 +866,30 @@ public partial class MainWindow : Window
             ChangeColumns(n);
     }
 
-    void ColumnsMenu(object s, RoutedEventArgs e) => ChangeColumns(_doc.Columns.Count == 1 ? 2 : 1);
+    void ColumnsMenu(object s, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu();
+        var current = _doc.Columns.Count;
+        for (var n = 1; n <= 6; n++)
+        {
+            var count = n;
+            var item = new MenuItem
+            {
+                Header = $"{(count == current ? "✓  " : "    ")}{count} {(count == 1 ? "column" : "columns")}",
+                FontWeight = count == current ? FontWeights.SemiBold : FontWeights.Normal
+            };
+            item.Click += (_, _) => ChangeColumns(count);
+            menu.Items.Add(item);
+        }
+        menu.Items.Add(new Separator());
+        var custom = new MenuItem { Header = "    Custom…" };
+        custom.Click += CustomColumns;
+        menu.Items.Add(custom);
+        menu.PlacementTarget = ColumnsBtn;
+        menu.Placement = PlacementMode.Bottom;
+        menu.HorizontalOffset = 0;
+        menu.IsOpen = true;
+    }
 
     void CustomColumns(object s, RoutedEventArgs e)
     {

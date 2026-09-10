@@ -4,19 +4,43 @@
         Title="ColumnNotes"
         Height="720" Width="1100"
         MinHeight="400" MinWidth="560"
+        FontFamily="Segoe UI"
         Background="{StaticResource PaperBrush}"
+        Foreground="{StaticResource InkBrush}"
         PreviewKeyDown="OnPreviewKeyDown"
         Closing="OnClosing"
         AllowDrop="True"
         Drop="OnDrop"
         DragOver="OnDragOver">
   <DockPanel>
-    <Menu DockPanel.Dock="Top" Background="{StaticResource ChromeBrush}">
+    <Border DockPanel.Dock="Top" Background="{StaticResource TitleBrush}" Padding="8,6">
+      <DockPanel>
+        <Border Width="18" Height="18" CornerRadius="4" Background="{StaticResource AccentFgBrush}" Margin="0,0,8,0">
+          <Grid>
+            <Rectangle Fill="{StaticResource AccentBrush}" Margin="3,2,9,2" RadiusX="1" RadiusY="1"/>
+            <Rectangle Fill="{StaticResource AccentBrush}" Opacity="0.45" Margin="9,2,3,2" RadiusX="1" RadiusY="1"/>
+          </Grid>
+        </Border>
+        <TextBlock x:Name="TitleLabel" Text="ColumnNotes" Foreground="{StaticResource AccentFgBrush}"
+                   VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold"/>
+      </DockPanel>
+    </Border>
+
+    <Border DockPanel.Dock="Top" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1">
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Content="+" Width="36" Height="32" Click="NewDoc" ToolTip="New tab" Style="{StaticResource ChromeBtn}"/>
+        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+          <StackPanel x:Name="TabStrip" Orientation="Horizontal"/>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+
+    <Menu DockPanel.Dock="Top">
       <MenuItem Header="_File">
         <MenuItem Header="_New" InputGestureText="Ctrl+N" Click="NewDoc"/>
         <MenuItem Header="New _window" InputGestureText="Ctrl+Shift+N" Click="NewWindow"/>
         <MenuItem Header="_Open…" InputGestureText="Ctrl+O" Click="OpenDoc"/>
-        <MenuItem Header="Close _tab" Click="CloseActiveTab"/>
+        <MenuItem Header="Close _tab" InputGestureText="Ctrl+W" Click="CloseActiveTab"/>
         <Separator/>
         <MenuItem Header="_Save" InputGestureText="Ctrl+S" Click="SaveDoc"/>
         <MenuItem Header="Save _As…" InputGestureText="Ctrl+Shift+S" Click="SaveDocAs"/>
@@ -84,28 +108,24 @@
       </MenuItem>
     </Menu>
 
-    <ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-      <StackPanel x:Name="TabStrip" Orientation="Horizontal" Background="{StaticResource ChromeBrush}"/>
-    </ScrollViewer>
-
-    <ToolBarTray DockPanel.Dock="Top" Background="{StaticResource ChromeBrush}">
-      <ToolBar Band="0">
+    <Border DockPanel.Dock="Top" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="4,2">
+      <WrapPanel>
         <Button Content="Save" Click="SaveDoc" ToolTip="Save (Ctrl+S)"/>
         <Button Content="Undo" Click="Undo"/>
         <Button Content="Redo" Click="Redo"/>
-        <Separator/>
-        <Button Content="B" FontWeight="Bold" Click="StyleBold"/>
-        <Button Content="I" FontStyle="Italic" Click="StyleItalic"/>
-        <Button Content="U" Click="StyleUnderline"/>
-        <Button Content="Color" Click="PickColor"/>
-        <Separator/>
+        <Rectangle Width="1" Height="16" Fill="{StaticResource LineBrush}" Margin="6,0"/>
+        <Button Content="B" FontWeight="Bold" Click="StyleBold" ToolTip="Bold"/>
+        <Button Content="I" FontStyle="Italic" Click="StyleItalic" ToolTip="Italic"/>
+        <Button Content="U" Click="StyleUnderline" ToolTip="Underline"/>
+        <Button x:Name="ColorBtn" Content="Color" Click="PickColor" ToolTip="Text color"/>
+        <Rectangle Width="1" Height="16" Fill="{StaticResource LineBrush}" Margin="6,0"/>
         <Button Content="Checkbox" Click="ConvertToChecks" ToolTip="Checkboxes on/off (Ctrl+Shift+K)"/>
         <Button Content="Section" Click="InsertSection" ToolTip="Add a colored section"/>
-        <Button Content="Columns" Click="ColumnsMenu"/>
-      </ToolBar>
-    </ToolBarTray>
+        <Button x:Name="ColumnsBtn" Content="Columns ▾" Click="ColumnsMenu" ToolTip="Choose 1–6 columns"/>
+      </WrapPanel>
+    </Border>
 
-    <StatusBar x:Name="StatusBar" DockPanel.Dock="Bottom" Background="{StaticResource ChromeBrush}">
+    <StatusBar x:Name="StatusBar" DockPanel.Dock="Bottom">
       <StatusBarItem><TextBlock x:Name="StatusColumns" Text="Col 1/1"/></StatusBarItem>
       <Separator/>
       <StatusBarItem><TextBlock x:Name="StatusZoom" Text="Zoom 100%"/></StatusBarItem>
@@ -117,10 +137,13 @@
       <StatusBarItem HorizontalAlignment="Right"><TextBlock x:Name="StatusMessage" Text="Ready"/></StatusBarItem>
     </StatusBar>
 
-    <Border x:Name="FindBar" DockPanel.Dock="Top" Padding="8,4" Background="{StaticResource ChromeBrush}" Visibility="Collapsed">
+    <Border x:Name="FindBar" DockPanel.Dock="Top" Padding="8,4" Background="{StaticResource ChromeBrush}"
+            BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Visibility="Collapsed">
       <StackPanel Orientation="Horizontal">
-        <TextBox x:Name="FindBox" Width="180" Margin="0,0,8,0" KeyDown="FindBoxKey"/>
-        <TextBox x:Name="ReplaceBox" Width="180" Margin="0,0,8,0" Visibility="Collapsed"/>
+        <TextBox x:Name="FindBox" Width="180" Margin="0,0,8,0" KeyDown="FindBoxKey"
+                 Background="{StaticResource PaperBrush}" BorderThickness="1" BorderBrush="{StaticResource LineBrush}" Padding="6,4"/>
+        <TextBox x:Name="ReplaceBox" Width="180" Margin="0,0,8,0" Visibility="Collapsed"
+                 Background="{StaticResource PaperBrush}" BorderThickness="1" BorderBrush="{StaticResource LineBrush}" Padding="6,4"/>
         <CheckBox x:Name="MatchCaseBox" Content="Match case" VerticalAlignment="Center" Margin="0,0,8,0"/>
         <Button Content="Find next" Click="FindNext" Margin="0,0,4,0"/>
         <Button x:Name="ReplaceBtn" Content="Replace" Click="ReplaceOne" Visibility="Collapsed" Margin="0,0,4,0"/>
