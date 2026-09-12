@@ -45,8 +45,11 @@ public partial class App : Application
     void OnUiCrash(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         WriteCrash(e.Exception);
-        MessageBox.Show(e.Exception.Message, "ColumnNotes", MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
+        if (e.Exception is InvalidOperationException &&
+            e.Exception.Message.Contains("is not a Visual", StringComparison.OrdinalIgnoreCase))
+            return;
+        MessageBox.Show(e.Exception.Message, "ColumnNotes", MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
     void OnDomainCrash(object sender, UnhandledExceptionEventArgs e)

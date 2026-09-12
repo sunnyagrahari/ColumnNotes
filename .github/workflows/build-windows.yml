@@ -40,18 +40,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "v1.2.1"
+          $tag = "v1.2.2"
           $notes = @"
-          ColumnNotes 1.2.1
+          ColumnNotes 1.2.2
 
-          - Section titles are black and bold
-          - Close (×) button is always visible on every section
-          - Checking a checkbox strikes through the item (Google Keep)
-          - Sections drag reliably onto other columns
+          - Fixes crash: 'Paragraph is not a Visual' when clicking inside a note
+          - Section titles black, visible close, Keep-style strikethrough
+          - Sections drag onto other columns
           "@
           gh release delete $tag --yes 2>$null
           gh release create $tag `
             "artifacts/ColumnNotes-portable-win-x64.zip" `
             "artifacts/publish/ColumnNotes.exe" `
-            --title "ColumnNotes 1.2.1" `
+            --title "ColumnNotes 1.2.2" `
             --notes $notes
