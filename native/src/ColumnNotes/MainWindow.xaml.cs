@@ -39,10 +39,12 @@ public partial class MainWindow : Window
     bool _fullscreen;
     readonly List<List<FrameworkElement>> _blockViews = new();
     readonly List<RichTextBox> _columnBoxes = new();
+    string? _focusBlockId;
 
     public MainWindow()
     {
         InitializeComponent();
+        Board.PreviewMouseLeftButtonDown += OnBoardClickAway;
         ApplySettingsChrome();
         var start = NoteDocument.Welcome();
         if (File.Exists(AppPaths.AutosavePath) && SettingsService.Current.RecentFiles.Count > 0)
@@ -200,8 +202,10 @@ public partial class MainWindow : Window
             DockPanel.SetDock(header, Dock.Top);
             colPanel.Children.Add(header);
 
-            var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-            var stack = new StackPanel { Margin = new Thickness(0) };
+            var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, AllowDrop = true };
+            var stack = new StackPanel { Margin = new Thickness(4, 0, 4, 4), AllowDrop = true };
+            stack.DragOver += (_, e) => { e.Effects = DragDropEffects.Move; e.Handled = true; };
+            stack.Drop += (_, e) => HandleDrop(e, colIndex, null, null);
             var views = new List<FrameworkElement>();
             var colIndex = i;
             var col = _doc.Columns[i];
@@ -212,8 +216,13 @@ public partial class MainWindow : Window
                 {
                     Background = SectionBrush(section.Color),
                     Padding = new Thickness(8, 6, 8, 8),
-                    Margin = new Thickness(0, 0, 0, 4)
+                    Margin = new Thickness(0, 0, 0, 8),
+                    CornerRadius = new CornerRadius(6),
+                    AllowDrop = true,
+                    Tag = section
                 };
+                band.DragOver += (_, e) => { e.Effects = DragDropEffects.Move; e.Handled = true; };
+                band.Drop += (_, e) => HandleDrop(e, colIndex, section.Id, null);
                 var inner = new StackPanel();
                 inner.Children.Add(BuildSectionHeader(colIndex, section));
                 foreach (var block in secBlocks)
@@ -248,8 +257,9 @@ public partial class MainWindow : Window
             Text = col.Name,
             BorderThickness = new Thickness(0),
             Background = Brushes.Transparent,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize = 12,
+            FontFamily = new FontFamily("Segoe UI"),
+            FontSize = 13,
+            FontWeight = FontWeights.Bold,
             Padding = new Thickness(10, 6, 4, 6),
             VerticalContentAlignment = VerticalAlignment.Center
         };
@@ -292,6 +302,8 @@ public partial class MainWindow : Window
 
     FrameworkElement BuildSectionHeader(int columnIndex, NoteSection section)
     {
+        var grip = DragHandle();
+        AttachDrag(grip, "section", columnIndex, section.Id);
         var title = new TextBox
         {
             Text = section.Title,
@@ -331,8 +343,21 @@ public partial class MainWindow : Window
             };
             colors.Children.Add(swatch);
         }
+        var close = new Button { Content = "×", Width = 22, Height = 22, FontSize = 14, ToolTip = "Delete section" };
+        close.Click += (_, _) =>
+        {
+            Snapshot();
+            _doc.DeleteSection(columnIndex, section.Id);
+            RebuildBoard();
+            MarkDirty();
+            Status("Section deleted");
+        };
         var row = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(grip, Dock.Left);
+        DockPanel.SetDock(close, Dock.Right);
         DockPanel.SetDock(colors, Dock.Right);
+        row.Children.Add(grip);
+        row.Children.Add(close);
         row.Children.Add(colors);
         row.Children.Add(title);
         return row;
@@ -359,7 +384,12 @@ public partial class MainWindow : Window
 
     FrameworkElement BuildBlock(NoteBlock block, int columnIndex)
     {
-        var row = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 1, 0, 1), Tag = block };
+        var row = new DockPanel { LastChildFill = true, Tag = block };
+        var grip = DragHandle();
+        AttachDrag(grip, "block", columnIndex, block.Id);
+        DockPanel.SetDock(grip, Dock.Left);
+        row.Children.Add(grip);
+
         var rtb = new RichTextBox
         {
             BorderThickness = new Thickness(0),
@@ -367,11 +397,24 @@ public partial class MainWindow : Window
             Document = block.ToFlowDocument(),
             FontFamily = new FontFamily(SettingsService.Current.FontFamily),
             FontSize = SettingsService.Current.FontSize * SettingsService.Current.Zoom / 100.0,
-            AcceptsReturn = true,
+            AcceptsReturn = false,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             Tag = block
         };
         rtb.GotFocus += (_, _) => _activeColumn = columnIndex;
+        rtb.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
+            e.Handled = true;
+            Snapshot();
+            var next = block.Type == "check"
+                ? NoteBlock.Check("", false, block.SectionId)
+                : NoteBlock.Paragraph("", false, block.SectionId);
+            _doc.InsertAfter(columnIndex, block.Id, next);
+            _focusBlockId = next.Id;
+            RebuildBoard();
+            MarkDirty();
+        };
         rtb.TextChanged += (_, _) =>
         {
             block.CaptureFrom(new RichTextBoxAdapter(rtb.Document));
@@ -389,8 +432,11 @@ public partial class MainWindow : Window
         if (!SettingsService.Current.WordWrap)
             rtb.Document.PageWidth = 4000;
         _columnBoxes.Add(rtb);
-        if (_tab.SelectedIds.Contains(block.Id))
-            row.Background = new SolidColorBrush(Color.FromArgb(40, 61, 107, 90));
+        if (block.Id == _focusBlockId)
+        {
+            _focusBlockId = null;
+            rtb.Loaded += (_, _) => rtb.Focus();
+        }
 
         if (block.Type == "check")
         {
@@ -408,7 +454,89 @@ public partial class MainWindow : Window
                 rtb.Foreground = Brushes.Gray;
         }
         row.Children.Add(rtb);
-        return row;
+
+        var frame = new Border
+        {
+            Child = row,
+            BorderBrush = _tab.SelectedIds.Contains(block.Id)
+                ? (Brush)Resources["AccentBrush"]
+                : new SolidColorBrush(Color.FromArgb(48, 26, 23, 20)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(4, 2, 6, 2),
+            Margin = new Thickness(0, 2, 0, 2),
+            Background = _tab.SelectedIds.Contains(block.Id)
+                ? new SolidColorBrush(Color.FromArgb(40, 61, 107, 90))
+                : new SolidColorBrush(Color.FromArgb(24, 255, 255, 255)),
+            AllowDrop = true,
+            Tag = block
+        };
+        frame.DragOver += (_, e) => { e.Effects = DragDropEffects.Move; e.Handled = true; };
+        frame.Drop += (_, e) => HandleDrop(e, columnIndex, block.SectionId, block.Id);
+        return frame;
+    }
+
+    TextBlock DragHandle() => new()
+    {
+        Text = "⋮⋮",
+        FontSize = 11,
+        Opacity = 0.45,
+        Margin = new Thickness(0, 4, 6, 0),
+        Cursor = Cursors.SizeAll,
+        VerticalAlignment = VerticalAlignment.Top,
+        ToolTip = "Drag"
+    };
+
+    void AttachDrag(FrameworkElement handle, string kind, int columnIndex, string id)
+    {
+        Point? start = null;
+        handle.PreviewMouseLeftButtonDown += (_, e) => start = e.GetPosition(this);
+        handle.MouseMove += (_, e) =>
+        {
+            if (e.LeftButton != MouseButtonState.Pressed || start == null) return;
+            var now = e.GetPosition(this);
+            if (Math.Abs(now.X - start.Value.X) < 4 && Math.Abs(now.Y - start.Value.Y) < 4) return;
+            start = null;
+            DragDrop.DoDragDrop(handle, new DataObject("cnotes", $"{kind}|{columnIndex}|{id}"), DragDropEffects.Move);
+        };
+    }
+
+    void HandleDrop(DragEventArgs e, int toCol, string? sectionId, string? beforeBlockId)
+    {
+        if (!e.Data.GetDataPresent("cnotes")) return;
+        var raw = e.Data.GetData("cnotes") as string;
+        if (string.IsNullOrEmpty(raw)) return;
+        var parts = raw.Split('|');
+        if (parts.Length != 3) return;
+        var kind = parts[0];
+        if (!int.TryParse(parts[1], out var fromCol)) return;
+        var id = parts[2];
+        e.Handled = true;
+        Snapshot();
+        if (kind == "section")
+            _doc.MoveSection(fromCol, id, toCol, sectionId);
+        else
+        {
+            var destSection = sectionId ?? _doc.Columns[Math.Clamp(toCol, 0, _doc.Columns.Count - 1)].Sections.LastOrDefault()?.Id;
+            if (destSection == null) return;
+            _doc.MoveBlock(fromCol, id, toCol, destSection, beforeBlockId);
+        }
+        RebuildBoard();
+        MarkDirty();
+    }
+
+    void OnBoardClickAway(object sender, MouseButtonEventArgs e)
+    {
+        if (_tab.SelectedIds.Count == 0) return;
+        DependencyObject? cur = e.OriginalSource as DependencyObject;
+        while (cur != null)
+        {
+            if (cur is FrameworkElement fe && fe.Tag is NoteBlock block && _tab.SelectedIds.Contains(block.Id))
+                return;
+            cur = VisualTreeHelper.GetParent(cur);
+        }
+        _tab.SelectedIds.Clear();
+        RebuildBoard();
     }
 
     void CaptureBoard()
@@ -733,23 +861,13 @@ public partial class MainWindow : Window
     void SelectAllColumn(object s, RoutedEventArgs e)
     {
         var col = _doc.Columns[Math.Clamp(_activeColumn, 0, _doc.Columns.Count - 1)];
+        var focused = Keyboard.FocusedElement as RichTextBox;
+        var sectionId = (focused?.Tag as NoteBlock)?.SectionId ?? col.Sections.FirstOrDefault()?.Id;
         _tab.SelectedIds.Clear();
-        foreach (var b in col.Blocks) _tab.SelectedIds.Add(b.Id);
+        foreach (var b in col.Blocks.Where(b => sectionId == null || b.SectionId == sectionId))
+            _tab.SelectedIds.Add(b.Id);
         RebuildBoard();
-        var colBoxes = _columnBoxes.Where(rtb => rtb.Tag is NoteBlock block && col.Blocks.Contains(block)).ToList();
-        if (colBoxes.Count > 0)
-        {
-            colBoxes[0].Focus();
-            colBoxes[0].SelectAll();
-            try
-            {
-                var text = string.Join("\n", col.Blocks.Select(b =>
-                    b.Type == "check" ? $"{(b.IsChecked == true ? "[x]" : "[ ]")} {b.PlainText}" : b.PlainText));
-                Clipboard.SetText(text);
-            }
-            catch { /* ignore */ }
-        }
-        Status($"Selected column “{col.Name}”");
+        Status("Selected section");
     }
 
     void CopyColumnIfNeeded()

@@ -158,6 +158,87 @@ public sealed class NoteDocument
         RefreshPlainText();
     }
 
+    public void DeleteSection(int columnIndex, string sectionId)
+    {
+        var col = Columns[Math.Clamp(columnIndex, 0, Columns.Count - 1)];
+        col.Sections = col.Sections.Where(s => s.Id != sectionId).ToList();
+        col.Blocks = col.Blocks.Where(b => b.SectionId != sectionId).ToList();
+        if (col.Sections.Count == 0)
+        {
+            var fresh = NoteSection.Create("Section 1", "paper");
+            col.Sections.Add(fresh);
+            col.Blocks.Add(NoteBlock.Paragraph("", false, fresh.Id));
+        }
+        else if (col.Blocks.Count == 0)
+            col.Blocks.Add(NoteBlock.Paragraph("", false, col.Sections[0].Id));
+        RefreshPlainText();
+    }
+
+    public void InsertAfter(int columnIndex, string afterId, NoteBlock next)
+    {
+        var col = Columns[Math.Clamp(columnIndex, 0, Columns.Count - 1)];
+        var idx = col.Blocks.FindIndex(b => b.Id == afterId);
+        if (idx < 0) col.Blocks.Add(next);
+        else col.Blocks.Insert(idx + 1, next);
+        RefreshPlainText();
+    }
+
+    public void MoveSection(int fromCol, string sectionId, int toCol, string? beforeSectionId)
+    {
+        if (fromCol < 0 || toCol < 0 || fromCol >= Columns.Count || toCol >= Columns.Count) return;
+        var src = Columns[fromCol];
+        var section = src.Sections.FirstOrDefault(s => s.Id == sectionId);
+        if (section == null) return;
+        var moved = src.Blocks.Where(b => b.SectionId == sectionId).ToList();
+        src.Sections = src.Sections.Where(s => s.Id != sectionId).ToList();
+        src.Blocks = src.Blocks.Where(b => b.SectionId != sectionId).ToList();
+        if (fromCol != toCol && src.Sections.Count == 0)
+        {
+            var fresh = NoteSection.Create("Section 1", "paper");
+            src.Sections.Add(fresh);
+            src.Blocks.Add(NoteBlock.Paragraph("", false, fresh.Id));
+        }
+        var dst = Columns[toCol];
+        var at = beforeSectionId == null ? dst.Sections.Count : dst.Sections.FindIndex(s => s.Id == beforeSectionId);
+        if (at < 0) at = dst.Sections.Count;
+        dst.Sections.Insert(at, section);
+        var insertAt = 0;
+        if (at > 0)
+        {
+            var prevId = dst.Sections[at - 1].Id;
+            var last = -1;
+            for (var i = 0; i < dst.Blocks.Count; i++)
+                if (dst.Blocks[i].SectionId == prevId) last = i;
+            insertAt = last + 1;
+        }
+        if (moved.Count == 0) moved.Add(NoteBlock.Paragraph("", false, section.Id));
+        dst.Blocks.InsertRange(insertAt, moved);
+        RefreshPlainText();
+    }
+
+    public void MoveBlock(int fromCol, string blockId, int toCol, string toSectionId, string? beforeBlockId)
+    {
+        if (fromCol < 0 || toCol < 0 || fromCol >= Columns.Count || toCol >= Columns.Count) return;
+        var src = Columns[fromCol];
+        var block = src.Blocks.FirstOrDefault(b => b.Id == blockId);
+        if (block == null) return;
+        src.Blocks.Remove(block);
+        if (src.Blocks.Count == 0)
+            src.Blocks.Add(NoteBlock.Paragraph("", false, src.Sections.FirstOrDefault()?.Id));
+        block.SectionId = toSectionId;
+        var dst = Columns[toCol];
+        var at = beforeBlockId == null ? -1 : dst.Blocks.FindIndex(b => b.Id == beforeBlockId);
+        if (at < 0)
+        {
+            var last = -1;
+            for (var i = 0; i < dst.Blocks.Count; i++)
+                if (dst.Blocks[i].SectionId == toSectionId) last = i;
+            at = last < 0 ? dst.Blocks.Count : last + 1;
+        }
+        dst.Blocks.Insert(at, block);
+        RefreshPlainText();
+    }
+
     static System.Text.Json.JsonSerializerOptions JsonOpts() => new()
     {
         WriteIndented = true,

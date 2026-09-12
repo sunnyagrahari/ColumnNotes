@@ -40,17 +40,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "v1.1.2"
+          $tag = "v1.2.0"
           $notes = @"
-          ColumnNotes 1.1.2 — UI match + Columns list.
+          ColumnNotes 1.2.0
 
-          - Columns toolbar button now opens a list (1–6 + Custom), like the web app
-          - Flat notepad chrome (no Windows ToolBar overflow arrow)
-          - Green title bar, tabs, section color dots, + section
+          - Enter in a checkbox item creates another checkbox
+          - Click outside clears a section Select All
+          - Drag sections between columns (Trello-style)
+          - Drag items to reorder inside a section (Keep-style)
+          - Bold column titles, light item borders
+          - Close button on every section (Ctrl+Z restores)
           "@
           gh release delete $tag --yes 2>$null
           gh release create $tag `
             "artifacts/ColumnNotes-portable-win-x64.zip" `
             "artifacts/publish/ColumnNotes.exe" `
-            --title "ColumnNotes 1.1.2" `
+            --title "ColumnNotes 1.2.0" `
             --notes $notes
