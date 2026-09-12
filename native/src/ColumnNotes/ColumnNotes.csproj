@@ -9,7 +9,7 @@
     <RootNamespace>ColumnNotes</RootNamespace>
     <Product>ColumnNotes</Product>
     <Company>ColumnNotes</Company>
-    <Version>1.2.2</Version>
+    <Version>1.3.0</Version>
     <Authors>ColumnNotes</Authors>
     <Description>A local notepad with columns and checklists.</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>

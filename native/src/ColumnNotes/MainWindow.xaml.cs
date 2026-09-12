@@ -6,6 +6,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using ColumnNotes.Models;
 using ColumnNotes.Services;
 using Microsoft.Win32;
@@ -41,6 +42,14 @@ public partial class MainWindow : Window
     readonly List<RichTextBox> _columnBoxes = new();
     string? _focusBlockId;
     bool _applyingLook;
+    Border? _ghost;
+    FrameworkElement? _dragVisual;
+    string? _ghostKey;
+    string? _hintKind;
+    int _hintCol = -1;
+    string? _hintSectionId;
+    string? _hintBeforeId;
+    readonly List<StackPanel> _columnStacks = new();
 
     public MainWindow()
     {
@@ -189,10 +198,12 @@ public partial class MainWindow : Window
 
     void RebuildBoard()
     {
+        ClearGhost();
         Board.Children.Clear();
         Board.ColumnDefinitions.Clear();
         _blockViews.Clear();
         _columnBoxes.Clear();
+        _columnStacks.Clear();
         var n = Math.Max(1, _doc.Columns.Count);
         for (var i = 0; i < n; i++)
         {
@@ -204,8 +215,9 @@ public partial class MainWindow : Window
             colPanel.Children.Add(header);
 
             var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, AllowDrop = true };
-            var stack = new StackPanel { Margin = new Thickness(4, 0, 4, 4), AllowDrop = true, MinHeight = 240 };
+            var stack = new StackPanel { Margin = new Thickness(4, 0, 4, 4), AllowDrop = true, MinHeight = 240, Tag = "col-stack" };
             var colIndex = i;
+            _columnStacks.Add(stack);
             WireDrop(colPanel, colIndex, null, null);
             WireDrop(scroll, colIndex, null, null);
             WireDrop(stack, colIndex, null, null);
@@ -226,7 +238,8 @@ public partial class MainWindow : Window
                     BorderThickness = new Thickness(2)
                 };
                 WireDrop(band, colIndex, section.Id, null, highlight: true);
-                var inner = new StackPanel();
+                var inner = new StackPanel { AllowDrop = true, Tag = "sec-inner" };
+                WireDrop(inner, colIndex, section.Id, null);
                 inner.Children.Add(BuildSectionHeader(colIndex, section));
                 foreach (var block in secBlocks)
                 {
@@ -465,6 +478,18 @@ public partial class MainWindow : Window
             rtb.Loaded += (_, _) => rtb.Focus();
         }
 
+        var del = ItemCloseButton();
+        del.MouseLeftButtonUp += (_, _) =>
+        {
+            Snapshot();
+            _doc.DeleteBlock(columnIndex, block.Id);
+            RebuildBoard();
+            MarkDirty();
+            Status("Item deleted");
+        };
+        DockPanel.SetDock(del, Dock.Right);
+        row.Children.Add(del);
+
         if (block.Type == "check")
         {
             var cb = new CheckBox
@@ -510,7 +535,12 @@ public partial class MainWindow : Window
             AllowDrop = true,
             Tag = block
         };
-        frame.DragOver += (_, e) => { e.Effects = DragDropEffects.Move; e.Handled = true; };
+        frame.DragOver += (s, e) =>
+        {
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+            UpdateDropHint(e, frame, columnIndex, block.SectionId);
+        };
         frame.Drop += (_, e) => HandleDrop(e, columnIndex, block.SectionId, block.Id);
         return frame;
     }
@@ -545,11 +575,12 @@ public partial class MainWindow : Window
         el.AllowDrop = true;
         el.DragOver += (_, e) =>
         {
-            if (!e.Data.GetDataPresent("cnotes") && !e.Data.GetDataPresent(DataFormats.Text)) return;
+            if (!HasNotesPayload(e)) return;
             e.Effects = DragDropEffects.Move;
             e.Handled = true;
             if (highlight && el is Border band)
                 band.BorderBrush = (Brush)Resources["AccentBrush"];
+            UpdateDropHint(e, el, colIndex, sectionId);
         };
         el.DragLeave += (_, _) =>
         {
@@ -576,6 +607,34 @@ public partial class MainWindow : Window
         ToolTip = "Drag"
     };
 
+    Border ItemCloseButton()
+    {
+        return new Border
+        {
+            Width = 20,
+            Height = 20,
+            CornerRadius = new CornerRadius(4),
+            BorderBrush = (Brush)Resources["InkBrush"],
+            BorderThickness = new Thickness(1),
+            Background = Brushes.White,
+            Cursor = Cursors.Hand,
+            Margin = new Thickness(6, 2, 0, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+            Tag = "keep-click",
+            ToolTip = "Delete item",
+            Child = new TextBlock
+            {
+                Text = "×",
+                FontSize = 13,
+                FontWeight = FontWeights.Bold,
+                Foreground = (Brush)Resources["InkBrush"],
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, -1, 0, 0)
+            }
+        };
+    }
+
     void AttachDrag(FrameworkElement handle, string kind, int columnIndex, string id)
     {
         Point? start = null;
@@ -596,8 +655,16 @@ public partial class MainWindow : Window
             var data = new DataObject();
             data.SetData("cnotes", payload);
             data.SetData(DataFormats.Text, payload);
+            _dragVisual = DragRoot(handle);
+            if (_dragVisual != null) _dragVisual.Opacity = 0.38;
             try { DragDrop.DoDragDrop(handle, data, DragDropEffects.Move); }
             catch { /* already dragging */ }
+            finally
+            {
+                if (_dragVisual != null) _dragVisual.Opacity = 1;
+                _dragVisual = null;
+                ClearGhost();
+            }
         };
         handle.PreviewMouseLeftButtonUp += (_, _) =>
         {
@@ -606,15 +673,35 @@ public partial class MainWindow : Window
         };
     }
 
+    static FrameworkElement? DragRoot(FrameworkElement start)
+    {
+        DependencyObject? cur = start;
+        while (cur != null)
+        {
+            if (cur is Border b && (b.Tag is NoteBlock || b.Tag is NoteSection)) return b;
+            cur = TreeParent(cur);
+        }
+        return start;
+    }
+
     static bool DragBlocked(DependencyObject? cur, FrameworkElement root)
     {
         while (cur != null && cur != root)
         {
             if (cur is TextBox or Button or CheckBox) return true;
             if (cur is FrameworkElement fe && fe.Tag as string == "keep-click") return true;
-            cur = VisualTreeHelper.GetParent(cur);
+            cur = TreeParent(cur);
         }
         return false;
+    }
+
+    static DependencyObject? TreeParent(DependencyObject? obj)
+    {
+        if (obj is null) return null;
+        if (obj is not Visual)
+            return LogicalTreeHelper.GetParent(obj);
+        try { return VisualTreeHelper.GetParent(obj); }
+        catch (InvalidOperationException) { return LogicalTreeHelper.GetParent(obj); }
     }
 
     int ColumnIndexAt(Point boardPoint)
@@ -625,19 +712,211 @@ public partial class MainWindow : Window
         return Math.Clamp((int)(boardPoint.X / w), 0, n - 1);
     }
 
+    static bool HasNotesPayload(DragEventArgs e) =>
+        e.Data.GetDataPresent("cnotes") || e.Data.GetDataPresent(DataFormats.Text);
+
+    static bool TryReadPayload(DragEventArgs e, out string kind, out int fromCol, out string id)
+    {
+        kind = "";
+        fromCol = -1;
+        id = "";
+        if (!HasNotesPayload(e)) return false;
+        var raw = (e.Data.GetDataPresent("cnotes") ? e.Data.GetData("cnotes") : e.Data.GetData(DataFormats.Text)) as string;
+        if (string.IsNullOrEmpty(raw)) return false;
+        var parts = raw.Split('|');
+        if (parts.Length != 3) return false;
+        if (parts[0] is not ("section" or "block")) return false;
+        if (!int.TryParse(parts[1], out fromCol)) return false;
+        kind = parts[0];
+        id = parts[2];
+        return true;
+    }
+
+    void UpdateDropHint(DragEventArgs e, FrameworkElement el, int colIndex, string? sectionId)
+    {
+        if (!TryReadPayload(e, out var kind, out _, out var dragId)) return;
+        try
+        {
+            if (kind == "section")
+                HintSection(e, colIndex, dragId);
+            else
+                HintBlock(e, el, colIndex, sectionId, dragId);
+        }
+        catch
+        {
+            /* never crash a drag-over */
+        }
+    }
+
+    void HintSection(DragEventArgs e, int colIndex, string dragId)
+    {
+        if (colIndex < 0 || colIndex >= _columnStacks.Count) return;
+        var stack = _columnStacks[colIndex];
+        var pos = e.GetPosition(stack);
+        var bands = stack.Children.OfType<FrameworkElement>().Where(c => c.Tag is NoteSection).ToList();
+        string? beforeId = null;
+        var vis = stack.Children.Count;
+        for (var i = 0; i < bands.Count; i++)
+        {
+            var child = bands[i];
+            var top = child.TranslatePoint(new Point(0, 0), stack).Y;
+            if (pos.Y < top + child.ActualHeight / 2)
+            {
+                beforeId = (child.Tag as NoteSection)!.Id;
+                vis = stack.Children.IndexOf(child);
+                break;
+            }
+        }
+        if (beforeId == dragId) { ClearGhost(); return; }
+        _hintKind = "section";
+        _hintCol = colIndex;
+        _hintSectionId = beforeId;
+        _hintBeforeId = beforeId;
+        var height = _dragVisual?.ActualHeight > 8 ? _dragVisual.ActualHeight : 56;
+        PlaceGhost(stack, vis < 0 ? stack.Children.Count : vis, height, $"s:{colIndex}:{beforeId}");
+    }
+
+    void HintBlock(DragEventArgs e, FrameworkElement el, int colIndex, string? sectionId, string dragId)
+    {
+        var inner = FindInner(el, colIndex, sectionId);
+        if (inner == null) return;
+        var sid = sectionId
+            ?? (inner.Parent is Border band && band.Tag is NoteSection sec ? sec.Id : null)
+            ?? _doc.Columns[Math.Clamp(colIndex, 0, _doc.Columns.Count - 1)].Sections.LastOrDefault()?.Id;
+        if (sid == null) return;
+        var pos = e.GetPosition(inner);
+        var items = inner.Children.OfType<FrameworkElement>().Where(c => c.Tag is NoteBlock).ToList();
+        string? beforeId = null;
+        var vis = inner.Children.Count;
+        for (var i = 0; i < items.Count; i++)
+        {
+            var child = items[i];
+            var top = child.TranslatePoint(new Point(0, 0), inner).Y;
+            if (pos.Y < top + Math.Max(16, child.ActualHeight) / 2)
+            {
+                beforeId = (child.Tag as NoteBlock)!.Id;
+                vis = inner.Children.IndexOf(child);
+                break;
+            }
+        }
+        if (beforeId == dragId) { ClearGhost(); return; }
+        _hintKind = "block";
+        _hintCol = colIndex;
+        _hintSectionId = sid;
+        _hintBeforeId = beforeId;
+        var height = _dragVisual?.ActualHeight > 8 ? Math.Min(48, _dragVisual.ActualHeight) : 32;
+        PlaceGhost(inner, vis < 0 ? inner.Children.Count : vis, height, $"b:{colIndex}:{sid}:{beforeId}");
+    }
+
+    StackPanel? FindInner(FrameworkElement el, int colIndex, string? sectionId)
+    {
+        if (el is StackPanel sp && sp.Tag as string == "sec-inner") return sp;
+        if (el.Tag is NoteBlock && el.Parent is StackPanel parent) return parent;
+        if (el is Border band && band.Child is StackPanel inner) return inner;
+        if (el is StackPanel colStack && colStack.Tag as string == "col-stack")
+        {
+            try
+            {
+                var pos = Mouse.GetPosition(colStack);
+                Border? hit = null;
+                foreach (var child in colStack.Children.OfType<Border>())
+                {
+                    if (child.Tag is not NoteSection) continue;
+                    var top = child.TranslatePoint(new Point(0, 0), colStack).Y;
+                    if (pos.Y < top + child.ActualHeight)
+                    {
+                        hit = child;
+                        break;
+                    }
+                    hit = child;
+                }
+                if (hit?.Child is StackPanel fromHit) return fromHit;
+            }
+            catch { /* ignore */ }
+        }
+        if (sectionId != null && colIndex >= 0 && colIndex < _columnStacks.Count)
+        {
+            foreach (var child in _columnStacks[colIndex].Children.OfType<Border>())
+            {
+                if (child.Tag is NoteSection s && s.Id == sectionId && child.Child is StackPanel found)
+                    return found;
+            }
+        }
+        return null;
+    }
+
+    void PlaceGhost(Panel parent, int index, double height, string key)
+    {
+        if (_ghostKey == key && _ghost?.Parent == parent) return;
+        var hadGhost = _ghost?.Parent == parent;
+        var oldIndex = hadGhost && _ghost != null ? parent.Children.IndexOf(_ghost) : -1;
+        if (_ghost?.Parent is Panel p) p.Children.Remove(_ghost);
+        if (hadGhost && oldIndex >= 0 && oldIndex < index) index--;
+        index = Math.Clamp(index, 0, parent.Children.Count);
+        _ghost = MakeGhost(height);
+        parent.Children.Insert(index, _ghost);
+        _ghostKey = key;
+    }
+
+    Border MakeGhost(double height)
+    {
+        var accent = (Brush)Resources["AccentBrush"];
+        return new Border
+        {
+            Height = Math.Max(28, height),
+            Margin = new Thickness(0, 4, 0, 4),
+            CornerRadius = new CornerRadius(4),
+            Background = new SolidColorBrush(Color.FromArgb(30, 61, 107, 90)),
+            Padding = new Thickness(2),
+            IsHitTestVisible = false,
+            Tag = "ghost",
+            Child = new Rectangle
+            {
+                Stroke = accent,
+                StrokeThickness = 1.5,
+                StrokeDashArray = new DoubleCollection { 4, 3 },
+                RadiusX = 4,
+                RadiusY = 4,
+                Fill = Brushes.Transparent,
+                IsHitTestVisible = false
+            }
+        };
+    }
+
+    void ClearGhost()
+    {
+        if (_ghost?.Parent is Panel p)
+        {
+            try { p.Children.Remove(_ghost); }
+            catch { /* already gone */ }
+        }
+        _ghost = null;
+        _ghostKey = null;
+        _hintKind = null;
+        _hintCol = -1;
+        _hintSectionId = null;
+        _hintBeforeId = null;
+    }
+
     void HandleDrop(DragEventArgs e, int toCol, string? sectionId, string? beforeBlockId)
     {
-        if (!e.Data.GetDataPresent("cnotes") && !e.Data.GetDataPresent(DataFormats.Text)) return;
-        var raw = (e.Data.GetDataPresent("cnotes") ? e.Data.GetData("cnotes") : e.Data.GetData(DataFormats.Text)) as string;
-        if (string.IsNullOrEmpty(raw)) return;
-        var parts = raw.Split('|');
-        if (parts.Length != 3) return;
-        var kind = parts[0];
-        if (kind != "section" && kind != "block") return;
-        if (!int.TryParse(parts[1], out var fromCol)) return;
-        var id = parts[2];
-        if (kind == "section" && fromCol == toCol && sectionId == id) return;
-        if (kind != "section" && fromCol == toCol && beforeBlockId == id) return;
+        if (!TryReadPayload(e, out var kind, out var fromCol, out var id)) return;
+        if (_hintCol >= 0)
+        {
+            toCol = _hintCol;
+            if (_hintKind == "section")
+            {
+                sectionId = _hintBeforeId;
+                beforeBlockId = null;
+            }
+            else
+            {
+                sectionId = _hintSectionId ?? sectionId;
+                beforeBlockId = _hintBeforeId;
+            }
+        }
+        if (kind == "section" && fromCol == toCol && sectionId == id) { ClearGhost(); return; }
+        if (kind != "section" && fromCol == toCol && beforeBlockId == id) { ClearGhost(); return; }
         e.Handled = true;
         Snapshot();
         if (kind == "section")
@@ -645,29 +924,37 @@ public partial class MainWindow : Window
         else
         {
             var destSection = sectionId ?? _doc.Columns[Math.Clamp(toCol, 0, _doc.Columns.Count - 1)].Sections.LastOrDefault()?.Id;
-            if (destSection == null) return;
+            if (destSection == null) { ClearGhost(); return; }
             _doc.MoveBlock(fromCol, id, toCol, destSection, beforeBlockId);
         }
+        ClearGhost();
         RebuildBoard();
         MarkDirty();
     }
 
     void OnBoardClickAway(object sender, MouseButtonEventArgs e)
     {
-        if (_tab.SelectedIds.Count == 0) return;
-        DependencyObject? cur = e.OriginalSource as DependencyObject;
-        while (cur != null)
+        try
         {
-            if (cur is Button or MenuItem or CheckBox) return;
-            if (cur is FrameworkElement fe)
+            if (_tab.SelectedIds.Count == 0) return;
+            DependencyObject? cur = e.OriginalSource as DependencyObject;
+            while (cur != null)
             {
-                if (fe.Tag as string is "drag" or "keep-click") return;
-                if (fe.Tag is NoteBlock block && _tab.SelectedIds.Contains(block.Id)) return;
+                if (cur is Button or MenuItem or CheckBox or RichTextBox) return;
+                if (cur is FrameworkElement fe)
+                {
+                    if (fe.Tag as string is "drag" or "keep-click") return;
+                    if (fe.Tag is NoteBlock block && _tab.SelectedIds.Contains(block.Id)) return;
+                }
+                cur = TreeParent(cur);
             }
-            cur = VisualTreeHelper.GetParent(cur);
+            _tab.SelectedIds.Clear();
+            RebuildBoard();
         }
-        _tab.SelectedIds.Clear();
-        RebuildBoard();
+        catch
+        {
+            /* never crash a click — Paragraph/Run are not Visuals */
+        }
     }
 
     void CaptureBoard()
@@ -1226,7 +1513,7 @@ public partial class MainWindow : Window
 
     void ShowAbout(object s, RoutedEventArgs e) =>
         MessageBox.Show(
-            "ColumnNotes 1.2.1\nA local notepad with columns and checklists.\nNo account, no cloud, no telemetry.\n\n" +
+            "ColumnNotes 1.3.0\nA local notepad with columns and checklists.\nNo account, no cloud, no telemetry.\n\n" +
             (AppPaths.IsPortable ? "Portable mode — settings next to the EXE." : "Installed mode — settings in %APPDATA%\\ColumnNotes"),
             "About ColumnNotes");
 

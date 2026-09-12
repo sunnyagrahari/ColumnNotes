@@ -239,6 +239,15 @@ public sealed class NoteDocument
         RefreshPlainText();
     }
 
+    public void DeleteBlock(int columnIndex, string blockId)
+    {
+        var col = Columns[Math.Clamp(columnIndex, 0, Columns.Count - 1)];
+        col.Blocks = col.Blocks.Where(b => b.Id != blockId).ToList();
+        if (col.Blocks.Count == 0)
+            col.Blocks.Add(NoteBlock.Paragraph("", false, col.Sections.FirstOrDefault()?.Id));
+        RefreshPlainText();
+    }
+
     static System.Text.Json.JsonSerializerOptions JsonOpts() => new()
     {
         WriteIndented = true,
