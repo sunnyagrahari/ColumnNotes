@@ -40,6 +40,7 @@ public partial class MainWindow : Window
     readonly List<List<FrameworkElement>> _blockViews = new();
     readonly List<RichTextBox> _columnBoxes = new();
     string? _focusBlockId;
+    bool _applyingLook;
 
     public MainWindow()
     {
@@ -197,16 +198,17 @@ public partial class MainWindow : Window
         {
             _doc.Columns[i].EnsureMeta(i);
             Board.ColumnDefinitions.Add(new ColumnDefinition());
-            var colPanel = new DockPanel { LastChildFill = true };
+            var colPanel = new DockPanel { LastChildFill = true, AllowDrop = true };
             var header = BuildColumnHeader(i);
             DockPanel.SetDock(header, Dock.Top);
             colPanel.Children.Add(header);
 
             var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, AllowDrop = true };
-            var stack = new StackPanel { Margin = new Thickness(4, 0, 4, 4), AllowDrop = true };
+            var stack = new StackPanel { Margin = new Thickness(4, 0, 4, 4), AllowDrop = true, MinHeight = 240 };
             var colIndex = i;
-            stack.DragOver += (_, e) => { e.Effects = DragDropEffects.Move; e.Handled = true; };
-            stack.Drop += (_, e) => HandleDrop(e, colIndex, null, null);
+            WireDrop(colPanel, colIndex, null, null);
+            WireDrop(scroll, colIndex, null, null);
+            WireDrop(stack, colIndex, null, null);
             var views = new List<FrameworkElement>();
             var col = _doc.Columns[i];
             foreach (var section in col.Sections)
@@ -219,10 +221,11 @@ public partial class MainWindow : Window
                     Margin = new Thickness(0, 0, 0, 8),
                     CornerRadius = new CornerRadius(6),
                     AllowDrop = true,
-                    Tag = section
+                    Tag = section,
+                    BorderBrush = Brushes.Transparent,
+                    BorderThickness = new Thickness(2)
                 };
-                band.DragOver += (_, e) => { e.Effects = DragDropEffects.Move; e.Handled = true; };
-                band.Drop += (_, e) => HandleDrop(e, colIndex, section.Id, null);
+                WireDrop(band, colIndex, section.Id, null, highlight: true);
                 var inner = new StackPanel();
                 inner.Children.Add(BuildSectionHeader(colIndex, section));
                 foreach (var block in secBlocks)
@@ -303,36 +306,37 @@ public partial class MainWindow : Window
     FrameworkElement BuildSectionHeader(int columnIndex, NoteSection section)
     {
         var grip = DragHandle();
-        AttachDrag(grip, "section", columnIndex, section.Id);
         var title = new TextBox
         {
             Text = section.Title,
             BorderThickness = new Thickness(0),
             Background = Brushes.Transparent,
-            FontSize = 11,
-            Padding = new Thickness(0, 0, 8, 4),
-            Foreground = Brushes.Gray
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Padding = new Thickness(4, 2, 8, 2),
+            Foreground = (Brush)Resources["InkBrush"],
+            VerticalContentAlignment = VerticalAlignment.Center
         };
         title.LostFocus += (_, _) =>
         {
             if (!string.IsNullOrWhiteSpace(title.Text)) section.Title = title.Text.Trim();
             MarkDirty();
         };
-        var colors = new StackPanel { Orientation = Orientation.Horizontal };
+        var colors = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         foreach (var id in NoteSection.Colors)
         {
             var c = id;
             var swatch = new Border
             {
-                Width = 14,
-                Height = 14,
-                CornerRadius = new CornerRadius(7),
-                Margin = new Thickness(3, 0, 0, 0),
+                Width = 12,
+                Height = 12,
+                CornerRadius = new CornerRadius(6),
+                Margin = new Thickness(2, 0, 0, 0),
                 Background = SectionDot(c),
                 BorderBrush = section.Color == c ? (Brush)Resources["InkBrush"] : (Brush)Resources["LineBrush"],
                 BorderThickness = new Thickness(section.Color == c ? 2 : 1),
                 Cursor = Cursors.Hand,
-                Tag = c,
+                Tag = "keep-click",
                 ToolTip = c
             };
             swatch.MouseLeftButtonUp += (_, _) =>
@@ -343,8 +347,30 @@ public partial class MainWindow : Window
             };
             colors.Children.Add(swatch);
         }
-        var close = new Button { Content = "×", Width = 22, Height = 22, FontSize = 14, ToolTip = "Delete section" };
-        close.Click += (_, _) =>
+        var close = new Border
+        {
+            Width = 22,
+            Height = 22,
+            CornerRadius = new CornerRadius(4),
+            BorderBrush = (Brush)Resources["InkBrush"],
+            BorderThickness = new Thickness(1),
+            Background = Brushes.White,
+            Cursor = Cursors.Hand,
+            Margin = new Thickness(8, 0, 0, 0),
+            Tag = "keep-click",
+            ToolTip = "Delete section",
+            Child = new TextBlock
+            {
+                Text = "×",
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                Foreground = (Brush)Resources["InkBrush"],
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, -1, 0, 0)
+            }
+        };
+        close.MouseLeftButtonUp += (_, _) =>
         {
             Snapshot();
             _doc.DeleteSection(columnIndex, section.Id);
@@ -352,7 +378,7 @@ public partial class MainWindow : Window
             MarkDirty();
             Status("Section deleted");
         };
-        var row = new DockPanel { LastChildFill = true };
+        var row = new DockPanel { LastChildFill = true, Cursor = Cursors.SizeAll, Tag = "drag" };
         DockPanel.SetDock(grip, Dock.Left);
         DockPanel.SetDock(close, Dock.Right);
         DockPanel.SetDock(colors, Dock.Right);
@@ -360,6 +386,7 @@ public partial class MainWindow : Window
         row.Children.Add(close);
         row.Children.Add(colors);
         row.Children.Add(title);
+        AttachDrag(row, "section", columnIndex, section.Id);
         return row;
     }
 
@@ -446,12 +473,24 @@ public partial class MainWindow : Window
                 Margin = new Thickness(0, 4, 8, 0),
                 VerticalAlignment = VerticalAlignment.Top
             };
-            cb.Checked += (_, _) => { block.IsChecked = true; MarkDirty(); UpdateStatus(); };
-            cb.Unchecked += (_, _) => { block.IsChecked = false; MarkDirty(); UpdateStatus(); };
+            cb.Checked += (_, _) =>
+            {
+                block.IsChecked = true;
+                ApplyCheckLook(rtb, true);
+                MarkDirty();
+                UpdateStatus();
+            };
+            cb.Unchecked += (_, _) =>
+            {
+                block.IsChecked = false;
+                ApplyCheckLook(rtb, false);
+                MarkDirty();
+                UpdateStatus();
+            };
             DockPanel.SetDock(cb, Dock.Left);
             row.Children.Add(cb);
             if (block.IsChecked == true)
-                rtb.Foreground = Brushes.Gray;
+                ApplyCheckLook(rtb, true);
         }
         row.Children.Add(rtb);
 
@@ -476,40 +515,125 @@ public partial class MainWindow : Window
         return frame;
     }
 
+    void ApplyCheckLook(RichTextBox rtb, bool on)
+    {
+        if (_applyingLook) return;
+        _applyingLook = true;
+        try
+        {
+            var ink = (Brush)Resources["InkBrush"];
+            var muted = new SolidColorBrush(Color.FromRgb(0x6B, 0x63, 0x5A));
+            rtb.Foreground = on ? muted : ink;
+            foreach (var para in rtb.Document.Blocks.OfType<Paragraph>())
+            {
+                para.Foreground = on ? muted : ink;
+                foreach (var inline in para.Inlines)
+                {
+                    inline.Foreground = on ? muted : ink;
+                    inline.TextDecorations = on ? TextDecorations.Strikethrough : null;
+                }
+            }
+        }
+        finally
+        {
+            _applyingLook = false;
+        }
+    }
+
+    void WireDrop(FrameworkElement el, int colIndex, string? sectionId, string? beforeBlockId, bool highlight = false)
+    {
+        el.AllowDrop = true;
+        el.DragOver += (_, e) =>
+        {
+            if (!e.Data.GetDataPresent("cnotes") && !e.Data.GetDataPresent(DataFormats.Text)) return;
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+            if (highlight && el is Border band)
+                band.BorderBrush = (Brush)Resources["AccentBrush"];
+        };
+        el.DragLeave += (_, _) =>
+        {
+            if (highlight && el is Border band) band.BorderBrush = Brushes.Transparent;
+        };
+        el.Drop += (_, e) =>
+        {
+            if (highlight && el is Border band) band.BorderBrush = Brushes.Transparent;
+            HandleDrop(e, colIndex, sectionId, beforeBlockId);
+        };
+    }
+
     TextBlock DragHandle() => new()
     {
         Text = "⋮⋮",
         Tag = "drag",
-        FontSize = 11,
-        Opacity = 0.45,
-        Margin = new Thickness(0, 4, 6, 0),
+        FontSize = 14,
+        FontWeight = FontWeights.Bold,
+        Opacity = 0.85,
+        Margin = new Thickness(0, 2, 8, 0),
         Cursor = Cursors.SizeAll,
-        VerticalAlignment = VerticalAlignment.Top,
+        VerticalAlignment = VerticalAlignment.Center,
+        Foreground = (Brush)Resources["InkBrush"],
         ToolTip = "Drag"
     };
 
     void AttachDrag(FrameworkElement handle, string kind, int columnIndex, string id)
     {
         Point? start = null;
-        handle.PreviewMouseLeftButtonDown += (_, e) => start = e.GetPosition(this);
-        handle.MouseMove += (_, e) =>
+        handle.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (DragBlocked(e.OriginalSource as DependencyObject, handle)) return;
+            start = e.GetPosition(this);
+            handle.CaptureMouse();
+        };
+        handle.PreviewMouseMove += (_, e) =>
         {
             if (e.LeftButton != MouseButtonState.Pressed || start == null) return;
             var now = e.GetPosition(this);
-            if (Math.Abs(now.X - start.Value.X) < 4 && Math.Abs(now.Y - start.Value.Y) < 4) return;
+            if (Math.Abs(now.X - start.Value.X) < 6 && Math.Abs(now.Y - start.Value.Y) < 6) return;
             start = null;
-            DragDrop.DoDragDrop(handle, new DataObject("cnotes", $"{kind}|{columnIndex}|{id}"), DragDropEffects.Move);
+            if (handle.IsMouseCaptured) handle.ReleaseMouseCapture();
+            var payload = $"{kind}|{columnIndex}|{id}";
+            var data = new DataObject();
+            data.SetData("cnotes", payload);
+            data.SetData(DataFormats.Text, payload);
+            try { DragDrop.DoDragDrop(handle, data, DragDropEffects.Move); }
+            catch { /* already dragging */ }
         };
+        handle.PreviewMouseLeftButtonUp += (_, _) =>
+        {
+            start = null;
+            if (handle.IsMouseCaptured) handle.ReleaseMouseCapture();
+        };
+    }
+
+    static bool DragBlocked(DependencyObject? cur, FrameworkElement root)
+    {
+        while (cur != null && cur != root)
+        {
+            if (cur is TextBox or Button or CheckBox) return true;
+            if (cur is FrameworkElement fe && fe.Tag as string == "keep-click") return true;
+            cur = VisualTreeHelper.GetParent(cur);
+        }
+        return false;
+    }
+
+    int ColumnIndexAt(Point boardPoint)
+    {
+        var n = Math.Max(1, Board.ColumnDefinitions.Count);
+        var w = Board.ActualWidth / n;
+        if (w <= 1) return _activeColumn;
+        return Math.Clamp((int)(boardPoint.X / w), 0, n - 1);
     }
 
     void HandleDrop(DragEventArgs e, int toCol, string? sectionId, string? beforeBlockId)
     {
-        if (!e.Data.GetDataPresent("cnotes")) return;
-        var raw = e.Data.GetData("cnotes") as string;
+        if (!e.Data.GetDataPresent("cnotes") && !e.Data.GetDataPresent(DataFormats.Text)) return;
+        var raw = (e.Data.GetDataPresent("cnotes") ? e.Data.GetData("cnotes") : e.Data.GetData(DataFormats.Text)) as string;
         if (string.IsNullOrEmpty(raw)) return;
         var parts = raw.Split('|');
         if (parts.Length != 3) return;
         var kind = parts[0];
+        if (kind != "section" && kind != "block") return;
         if (!int.TryParse(parts[1], out var fromCol)) return;
         var id = parts[2];
         if (kind == "section" && fromCol == toCol && sectionId == id) return;
@@ -537,7 +661,7 @@ public partial class MainWindow : Window
             if (cur is Button or MenuItem or CheckBox) return;
             if (cur is FrameworkElement fe)
             {
-                if (fe.Tag as string == "drag") return;
+                if (fe.Tag as string is "drag" or "keep-click") return;
                 if (fe.Tag is NoteBlock block && _tab.SelectedIds.Contains(block.Id)) return;
             }
             cur = VisualTreeHelper.GetParent(cur);
@@ -1102,7 +1226,7 @@ public partial class MainWindow : Window
 
     void ShowAbout(object s, RoutedEventArgs e) =>
         MessageBox.Show(
-            "ColumnNotes 1.2.0\nA local notepad with columns and checklists.\nNo account, no cloud, no telemetry.\n\n" +
+            "ColumnNotes 1.2.1\nA local notepad with columns and checklists.\nNo account, no cloud, no telemetry.\n\n" +
             (AppPaths.IsPortable ? "Portable mode — settings next to the EXE." : "Installed mode — settings in %APPDATA%\\ColumnNotes"),
             "About ColumnNotes");
 
@@ -1149,7 +1273,7 @@ public partial class MainWindow : Window
     {
         if (e.Data.GetDataPresent("cnotes"))
         {
-            HandleDrop(e, _activeColumn, null, null);
+            HandleDrop(e, ColumnIndexAt(e.GetPosition(Board)), null, null);
             return;
         }
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
