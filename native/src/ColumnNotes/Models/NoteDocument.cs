@@ -223,7 +223,7 @@ public sealed class NoteDocument
         var block = src.Blocks.FirstOrDefault(b => b.Id == blockId);
         if (block == null) return;
         src.Blocks.Remove(block);
-        if (src.Blocks.Count == 0)
+        if (fromCol != toCol && src.Blocks.Count == 0)
             src.Blocks.Add(NoteBlock.Paragraph("", false, src.Sections.FirstOrDefault()?.Id));
         block.SectionId = toSectionId;
         var dst = Columns[toCol];

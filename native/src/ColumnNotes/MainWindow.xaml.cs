@@ -44,7 +44,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Board.PreviewMouseLeftButtonDown += OnBoardClickAway;
+        PreviewMouseLeftButtonDown += OnBoardClickAway;
         ApplySettingsChrome();
         var start = NoteDocument.Welcome();
         if (File.Exists(AppPaths.AutosavePath) && SettingsService.Current.RecentFiles.Count > 0)
@@ -204,10 +204,10 @@ public partial class MainWindow : Window
 
             var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, AllowDrop = true };
             var stack = new StackPanel { Margin = new Thickness(4, 0, 4, 4), AllowDrop = true };
+            var colIndex = i;
             stack.DragOver += (_, e) => { e.Effects = DragDropEffects.Move; e.Handled = true; };
             stack.Drop += (_, e) => HandleDrop(e, colIndex, null, null);
             var views = new List<FrameworkElement>();
-            var colIndex = i;
             var col = _doc.Columns[i];
             foreach (var section in col.Sections)
             {
@@ -479,6 +479,7 @@ public partial class MainWindow : Window
     TextBlock DragHandle() => new()
     {
         Text = "⋮⋮",
+        Tag = "drag",
         FontSize = 11,
         Opacity = 0.45,
         Margin = new Thickness(0, 4, 6, 0),
@@ -511,6 +512,8 @@ public partial class MainWindow : Window
         var kind = parts[0];
         if (!int.TryParse(parts[1], out var fromCol)) return;
         var id = parts[2];
+        if (kind == "section" && fromCol == toCol && sectionId == id) return;
+        if (kind != "section" && fromCol == toCol && beforeBlockId == id) return;
         e.Handled = true;
         Snapshot();
         if (kind == "section")
@@ -531,8 +534,12 @@ public partial class MainWindow : Window
         DependencyObject? cur = e.OriginalSource as DependencyObject;
         while (cur != null)
         {
-            if (cur is FrameworkElement fe && fe.Tag is NoteBlock block && _tab.SelectedIds.Contains(block.Id))
-                return;
+            if (cur is Button or MenuItem or CheckBox) return;
+            if (cur is FrameworkElement fe)
+            {
+                if (fe.Tag as string == "drag") return;
+                if (fe.Tag is NoteBlock block && _tab.SelectedIds.Contains(block.Id)) return;
+            }
             cur = VisualTreeHelper.GetParent(cur);
         }
         _tab.SelectedIds.Clear();
@@ -1088,14 +1095,14 @@ public partial class MainWindow : Window
         MessageBox.Show(
             "Ctrl+N New tab   Ctrl+O Open (new tab)   Ctrl+W Close tab\n" +
             "Ctrl+P Print   Ctrl+F Find   Ctrl+H Replace   F3 Find next\n" +
-            "Ctrl+A Select column   Ctrl+Z Undo   Ctrl+Y Redo\n" +
+            "Ctrl+A Select section   Ctrl+Z Undo   Ctrl+Y Redo\n" +
             "Ctrl+Shift+K Checkboxes on/off   Ctrl+Shift+V Paste plain\n" +
             "F5 Date/time   F11 Full screen   Ctrl+Shift+N New window",
             "Keyboard shortcuts");
 
     void ShowAbout(object s, RoutedEventArgs e) =>
         MessageBox.Show(
-            "ColumnNotes 1.0.0\nA local notepad with columns and checklists.\nNo account, no cloud, no telemetry.\n\n" +
+            "ColumnNotes 1.2.0\nA local notepad with columns and checklists.\nNo account, no cloud, no telemetry.\n\n" +
             (AppPaths.IsPortable ? "Portable mode — settings next to the EXE." : "Installed mode — settings in %APPDATA%\\ColumnNotes"),
             "About ColumnNotes");
 
@@ -1128,12 +1135,23 @@ public partial class MainWindow : Window
 
     void OnDragOver(object s, DragEventArgs e)
     {
+        if (e.Data.GetDataPresent("cnotes"))
+        {
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+            return;
+        }
         e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
 
     void OnDrop(object s, DragEventArgs e)
     {
+        if (e.Data.GetDataPresent("cnotes"))
+        {
+            HandleDrop(e, _activeColumn, null, null);
+            return;
+        }
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
         foreach (var f in files) if (File.Exists(f)) OpenPath(f);
     }
